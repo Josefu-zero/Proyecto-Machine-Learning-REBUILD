@@ -33,7 +33,7 @@ sub render {
     my $offset_frac = $scale->{offset} || 0;
     my $range = $max_val - $min_val;
     return if $range <= 0;
-    my $candle_width = $width / $visible_bars;
+    my $candle_width = $scale->_drawable_width() / $visible_bars;
 
     # 1. Dibujar FVGs
     if (exists $strategy_data->{fvgs} && ref $strategy_data->{fvgs} eq 'ARRAY') {

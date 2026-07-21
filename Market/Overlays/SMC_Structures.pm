@@ -37,7 +37,7 @@ sub render {
     my $range = $max_val - $min_val;
     return if $range <= 0;
 
-    my $candle_width = $width / $visible_bars;
+    my $candle_width = $scale->_drawable_width() / $visible_bars;
 
     # 1. Recopilar FVGs a dibujar
     my @fvgs_to_draw;

@@ -229,7 +229,7 @@ sub _process_bar {
         # if high[1] == swingHigh[1] and high < swingHigh
         if ($high_prev == $sw_high_prev && $h < $swing_high) {
             $self->{_bar_index_high} = $bar_idx - 1;
-            $self->{_price_high}     = $low_prev;   # ← priceHigh := low[1]
+            $self->{_price_high}     = $high_prev;  # CORREGIDO: usar high[1] para el pivote alto
         }
 
         # swingLow[1]: min de la ventana sin la barra actual

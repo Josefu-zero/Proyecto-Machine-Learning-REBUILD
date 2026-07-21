@@ -37,7 +37,7 @@ sub render {
     my $range = $max_val - $min_val;
     return if $range <= 0;
 
-    my $candle_width = $width / $visible_bars;
+    my $candle_width = $scale->_drawable_width() / $visible_bars;
 
     for my $i (0 .. $#$liquidity_slice) {
         my $punto = $liquidity_slice->[$i];

@@ -103,7 +103,7 @@ sub render {
 
     my $visible_bars = $scale->{visible_bars};
     my $offset_frac  = $scale->{offset};
-    my $candle_w     = $width / $visible_bars;
+    my $candle_w     = $scale->_drawable_width() / $visible_bars;
 
     # ── Helpers de coordinadas ──────────────────────────────────────────────
 
@@ -111,13 +111,13 @@ sub render {
     my $x_of = sub {
         my ($bar) = @_;
         my $rel = $bar - $start_idx;
-        return ($rel - $offset_frac) * $candle_w + ($candle_w / 2);
+        return $scale->index_to_center_x($rel);
     };
 
     # Precio → Y en canvas
     my $y_of = sub {
         my ($price) = @_;
-        return $height - (($price - $min_val) / $range) * $height;
+        return $scale->value_to_y($price);
     };
 
     # Interpolación lineal de color #RRGGBB (Pine: color.from_gradient)
@@ -140,6 +140,56 @@ sub render {
             int($r1[1] + ($r2[1]-$r1[1]) * $t),
             int($r1[2] + ($r2[2]-$r1[2]) * $t),
         );
+    };
+
+    # Cohen-Sutherland line clipping para evitar desbordamientos de enteros en Tk (zoom bug)
+    my $clip_line = sub {
+        my ($x0, $y0, $x1, $y1) = @_;
+        my ($min_x, $min_y, $max_x, $max_y) = (-25000, -25000, 25000, 25000);
+        my $compute_outcode = sub {
+            my ($x, $y) = @_;
+            my $code = 0;
+            $code |= 1 if $x < $min_x; # LEFT
+            $code |= 2 if $x > $max_x; # RIGHT
+            $code |= 4 if $y < $min_y; # BOTTOM
+            $code |= 8 if $y > $max_y; # TOP
+            return $code;
+        };
+        my $outcode0 = $compute_outcode->($x0, $y0);
+        my $outcode1 = $compute_outcode->($x1, $y1);
+        my $accept = 0;
+        while (1) {
+            if (!($outcode0 | $outcode1)) {
+                $accept = 1;
+                last;
+            } elsif ($outcode0 & $outcode1) {
+                last;
+            } else {
+                my $x; my $y;
+                my $outcode_out = $outcode0 ? $outcode0 : $outcode1;
+                if ($outcode_out & 8) {
+                    $x = $x0 + ($x1 - $x0) * ($max_y - $y0) / ($y1 - $y0);
+                    $y = $max_y;
+                } elsif ($outcode_out & 4) {
+                    $x = $x0 + ($x1 - $x0) * ($min_y - $y0) / ($y1 - $y0);
+                    $y = $min_y;
+                } elsif ($outcode_out & 2) {
+                    $y = $y0 + ($y1 - $y0) * ($max_x - $x0) / ($x1 - $x0);
+                    $x = $max_x;
+                } elsif ($outcode_out & 1) {
+                    $y = $y0 + ($y1 - $y0) * ($min_x - $x0) / ($x1 - $x0);
+                    $x = $min_x;
+                }
+                if ($outcode_out == $outcode0) {
+                    $x0 = $x; $y0 = $y;
+                    $outcode0 = $compute_outcode->($x0, $y0);
+                } else {
+                    $x1 = $x; $y1 = $y;
+                    $outcode1 = $compute_outcode->($x1, $y1);
+                }
+            }
+        }
+        return $accept ? ($x0, $y0, $x1, $y1) : ();
     };
 
     # ── Dibujar cada perfil ─────────────────────────────────────────────────
@@ -174,12 +224,14 @@ sub render {
 
             # Clip + dibujar sólo si al menos un extremo visible
             unless (($x_start < 0 && $x_end < 0) || ($x_start > $width && $x_end > $width)) {
-                $c->createLine(
-                    $x_start, $y1, $x_end, $y2,
-                    -fill  => $color_zz,
-                    -width => $self->{line_width},
-                    -tags  => ['zvp_overlay'],
-                );
+                if (my @coords = $clip_line->($x_start, $y1, $x_end, $y2)) {
+                    $c->createLine(
+                        @coords,
+                        -fill  => $color_zz,
+                        -width => $self->{line_width},
+                        -tags  => ['zvp_overlay'],
+                    );
+                }
 
                 # Marcadores de pivote (círculos pequeños)
                 for my $px_py ([$x_start, $y1], [$x_end, $y2]) {
@@ -211,12 +263,14 @@ sub render {
                 my $cy1 = $y_of->($sp + $off);
                 my $cy2 = $y_of->($ep + $off);
                 unless (($cy1 < 0 && $cy2 < 0) || ($cy1 > $height && $cy2 > $height)) {
-                    $c->createLine(
-                        $x_start, $cy1, $x_end, $cy2,
-                        -fill  => $self->{color_channel},
-                        -width => 1,
-                        -tags  => ['zvp_overlay'],
-                    );
+                    if (my @coords = $clip_line->($x_start, $cy1, $x_end, $cy2)) {
+                        $c->createLine(
+                            @coords,
+                            -fill  => $self->{color_channel},
+                            -width => 1,
+                            -tags  => ['zvp_overlay'],
+                        );
+                    }
                 }
             }
 
@@ -248,19 +302,22 @@ sub render {
                 }
 
                 # X coordenadas: de startBar a startBar+bars_len
-                my $bx1 = $x_of->($sb);                     # startBar
-                my $bx2 = $x_of->($sb + $bars_len);         # startBar + bars_len
-                my $by  = $y_of->($fill_start + $off);      # fillStart + offset
+                my $px1 = $x_of->($sb + $bars_len);
+                my $px2 = $x_of->($sb);
 
-                next if $by < 0 || $by > $height;
-                next if ($bx1 < 0 && $bx2 < 0) || ($bx1 > $width && $bx2 > $width);
+                # Y coordenada única para dibujo horizontal (fillStart + offset)
+                my $by  = $y_of->($fill_start + $off);
 
-                $c->createLine(
-                    $bx1, $by, $bx2, $by,
-                    -fill  => $bar_color,
-                    -width => $self->{bin_width_px},
-                    -tags  => ['zvp_overlay'],
-                );
+                unless (($px1 < 0 && $px2 < 0) || ($px1 > $width && $px2 > $width) || $by < 0 || $by > $height) {
+                    if (my @coords = $clip_line->($px1, $by, $px2, $by)) {
+                        $c->createLine(
+                            @coords,
+                            -fill  => $bar_color,
+                            -width => $self->{bin_width_px},
+                            -tags  => ['zvp_overlay'],
+                        );
+                    }
+                }
             }
 
             # ── 4. POC LINES ─────────────────────────────────────────────

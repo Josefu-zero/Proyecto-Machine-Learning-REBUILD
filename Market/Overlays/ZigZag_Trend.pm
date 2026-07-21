@@ -45,7 +45,7 @@ sub render {
     my $range = $max_val - $min_val;
     return if $range <= 0;
 
-    my $candle_width = $width / $visible_bars;
+    my $candle_width = $scale->_drawable_width() / $visible_bars;
 
     # -------------------------------------------------------------------------
     # 1. Recopilar todos los segmentos visibles a partir de la última barra
@@ -69,6 +69,39 @@ sub render {
 
     # -------------------------------------------------------------------------
     # 2. Dibujar cada segmento del ZigZag como una línea
+    # Cohen-Sutherland line clipping para evitar desbordamientos de Tk al hacer zoom
+    my $clip_line = sub {
+        my ($x0, $y0, $x1, $y1) = @_;
+        my ($min_x, $min_y, $max_x, $max_y) = (-25000, -25000, 25000, 25000);
+        my $compute_outcode = sub {
+            my ($x, $y) = @_;
+            my $code = 0;
+            $code |= 1 if $x < $min_x; $code |= 2 if $x > $max_x;
+            $code |= 4 if $y < $min_y; $code |= 8 if $y > $max_y;
+            return $code;
+        };
+        my $outcode0 = $compute_outcode->($x0, $y0);
+        my $outcode1 = $compute_outcode->($x1, $y1);
+        my $accept = 0;
+        while (1) {
+            if (!($outcode0 | $outcode1)) { $accept = 1; last; }
+            elsif ($outcode0 & $outcode1) { last; }
+            else {
+                my $x; my $y;
+                my $outcode_out = $outcode0 ? $outcode0 : $outcode1;
+                if ($outcode_out & 8) { $x = $x0 + ($x1 - $x0) * ($max_y - $y0) / ($y1 - $y0); $y = $max_y; }
+                elsif ($outcode_out & 4) { $x = $x0 + ($x1 - $x0) * ($min_y - $y0) / ($y1 - $y0); $y = $min_y; }
+                elsif ($outcode_out & 2) { $y = $y0 + ($y1 - $y0) * ($max_x - $x0) / ($x1 - $x0); $x = $max_x; }
+                elsif ($outcode_out & 1) { $y = $y0 + ($y1 - $y0) * ($min_x - $x0) / ($x1 - $x0); $x = $min_x; }
+                if ($outcode_out == $outcode0) { $x0 = $x; $y0 = $y; $outcode0 = $compute_outcode->($x0, $y0); }
+                else { $x1 = $x; $y1 = $y; $outcode1 = $compute_outcode->($x1, $y1); }
+            }
+        }
+        return $accept ? ($x0, $y0, $x1, $y1) : ();
+    };
+
+    # -------------------------------------------------------------------------
+    # 2. Dibujar las líneas del zigzag (tramos confirmados)
     # -------------------------------------------------------------------------
     for my $seg (@all_segments) {
         next unless defined $seg->{from_bar} && defined $seg->{to_bar};
@@ -78,11 +111,11 @@ sub render {
         my $rel_from = $seg->{from_bar} - $start_idx_viewport;
         my $rel_to   = $seg->{to_bar}   - $start_idx_viewport;
 
-        my $x1 = ($rel_from - $offset_frac) * $candle_width + ($candle_width / 2);
-        my $x2 = ($rel_to   - $offset_frac) * $candle_width + ($candle_width / 2);
+        my $x1 = $scale->index_to_center_x($rel_from);
+        my $x2 = $scale->index_to_center_x($rel_to);
 
-        my $y1 = $height - ((($seg->{from_price} - $min_val) / $range) * $height);
-        my $y2 = $height - ((($seg->{to_price}   - $min_val) / $range) * $height);
+        my $y1 = $scale->value_to_y($seg->{from_price});
+        my $y2 = $scale->value_to_y($seg->{to_price});
 
         # Saltar segmentos completamente fuera de la pantalla
         next if ($x1 < 0 && $x2 < 0) || ($x1 > $width && $x2 > $width);
@@ -91,12 +124,14 @@ sub render {
             ? $self->{color_bullish}
             : $self->{color_bearish};
 
-        $c->createLine(
-            $x1, $y1, $x2, $y2,
-            -fill  => $color,
-            -width => $self->{line_width},
-            -tags  => ['zigzag_overlay'],
-        );
+        if (my @coords = $clip_line->($x1, $y1, $x2, $y2)) {
+            $c->createLine(
+                @coords,
+                -fill  => $color,
+                -width => $self->{line_width},
+                -tags  => ['zigzag_overlay'],
+            );
+        }
     }
 
     # -------------------------------------------------------------------------

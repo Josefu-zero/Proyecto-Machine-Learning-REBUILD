@@ -80,7 +80,7 @@ sub render {
 
     my $visible_bars = $scale->{visible_bars};
     my $offset_frac  = $scale->{offset};
-    my $candle_w     = $width / $visible_bars;
+    my $candle_w = $scale->_drawable_width() / $visible_bars;
 
     # Ancho máximo que puede ocupar el histograma (columna derecha del canvas)
     my $hist_max_w   = $width * $self->{hist_width_pct};

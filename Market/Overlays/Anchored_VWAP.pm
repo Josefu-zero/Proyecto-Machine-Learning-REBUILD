@@ -78,7 +78,7 @@ sub render {
 
     my $visible_bars = $scale->{visible_bars};
     my $offset_frac  = $scale->{offset};
-    my $candle_w     = $width / $visible_bars;
+    my $candle_w = $scale->_drawable_width() / $visible_bars;
 
     $start_idx_vp //= 0;
 
