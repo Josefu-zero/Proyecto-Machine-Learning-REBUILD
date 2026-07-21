@@ -14,6 +14,7 @@ use Market::Overlays::SMC_Structures;
 use Market::Overlays::ZigZag_Trend;
 use Market::Overlays::Volume_Profile;
 use Market::Overlays::Anchored_VWAP;
+use Market::Overlays::ZigZag_VolumeProfile;
 sub new {
     my ($class, %args) = @_;
     
@@ -69,6 +70,11 @@ sub new {
             anchored_vwap    => 1,  # VWAP Multi-Pivot Anclado
             vwap_markers     => 1,  # Marcadores de ancla del VWAP
             vwap_labels      => 1,  # Etiquetas de valor VWAP
+            # --- ZigZag Volume Profile [ChartPrime] ---
+            zvp_zigzag       => 1,  # Líneas ZigZag del perfil
+            zvp_channel      => 1,  # Canal de swing (ATR)
+            zvp_histogram    => 1,  # Histograma de volumen por tramo
+            zvp_poc          => 1,  # Línea POC por tramo
         },
         _sidebar_buttons => {},     # refs a widgets de botón para actualizar su estado
     };
@@ -85,6 +91,7 @@ sub new {
     $self->{zigzag_overlay}    = Market::Overlays::ZigZag_Trend->new(canvas => $self->{price_canvas});
     $self->{vp_overlay}        = Market::Overlays::Volume_Profile->new(canvas => $self->{price_canvas});
     $self->{vwap_overlay}      = Market::Overlays::Anchored_VWAP->new(canvas => $self->{price_canvas});
+    $self->{zvp_overlay}       = Market::Overlays::ZigZag_VolumeProfile->new(canvas => $self->{price_canvas});
     $self->bind_events();
     $self->_build_sidebar($args{sidebar}) if defined $args{sidebar};
     return $self;
@@ -214,6 +221,22 @@ sub render {
         }
     } else {
         $self->{price_canvas}->delete('vwap_overlay');
+    }
+
+    # ========================================================
+    # Overlay ZigZag Volume Profile [ChartPrime] (MPL-2.0)
+    # Perfil de volumen anclado a cada tramo del ZigZag
+    # ========================================================
+    if (($vis->{zvp_zigzag}    // 1)
+     || ($vis->{zvp_channel}   // 1)
+     || ($vis->{zvp_histogram} // 1)
+     || ($vis->{zvp_poc}       // 1)) {
+        my $zvp_indicator = $self->{indicators}{indicators}{'ZigZag_VolumeProfile'};
+        if (defined $zvp_indicator) {
+            $self->{zvp_overlay}->render($scale, $zvp_indicator, $start, $vis);
+        }
+    } else {
+        $self->{price_canvas}->delete('zvp_overlay');
     }
 
     # Panel Secundario (ATR)
@@ -1092,12 +1115,370 @@ sub _build_sidebar {
     $make_toggle->('vwap_markers',     'MM  Marcadores Ancla');
     $make_toggle->('vwap_labels',      'LL  Etiquetas VWAP');
 
+    # ── Sección: ZigZag Volume Profile [ChartPrime] ───────────
+    $sep->('ZZ Volume Profile');
+    $make_toggle->('zvp_zigzag',       'ZZ  ZZ Lineas');
+    $make_toggle->('zvp_channel',      'CH  Canal ATR');
+    $make_toggle->('zvp_histogram',    'HH  Histograma Vol');
+    $make_toggle->('zvp_poc',          'PC  POC por Tramo');
+    $make_action->('\x{2699}  Configurar ZVP', sub { $self->_open_zvp_config() });
+
     # ── Sección: Replay ──────────────────────────────────────
     $sep->('Replay');
     $make_action->('[<] Paso atras',  sub { $self->step_replay(-1)  });
     $make_action->('[>] Play',        sub { $self->play_replay()     });
     $make_action->('[||] Pausa',      sub { $self->pause_replay()    });
     $make_action->('[>>] Paso fwd',   sub { $self->step_replay(1)    });
+}
+
+# =============================================================================
+# _open_zvp_config — Diálogo de configuración del ZigZag Volume Profile
+# Equivalente al menú "Entradas de datos" de TradingView para este indicador
+# =============================================================================
+sub _open_zvp_config {
+    my ($self) = @_;
+
+    my $zvp_ind = $self->{indicators}{indicators}{'ZigZag_VolumeProfile'};
+    unless (defined $zvp_ind) {
+        $self->{mw}->messageBox(
+            -title   => 'ZVP Config',
+            -message => 'El indicador ZigZag_VolumeProfile no está registrado.',
+            -type    => 'OK',
+        );
+        return;
+    }
+
+    # Colores del tema
+    my $bg        = '#131722';
+    my $bg_panel  = '#1A1E2E';
+    my $bg_field  = '#2A2E39';
+    my $fg        = '#D1D4DC';
+    my $fg_label  = '#8892A4';
+    my $accent    = '#2962FF';
+    my $fg_group  = '#4B5563';
+    my $font_lbl  = 'Helvetica 10';
+    my $font_grp  = 'Helvetica 8';
+    my $font_btn  = 'Helvetica 10 bold';
+
+    # Diálogo principal
+    my $top = $self->{mw}->Toplevel;
+    $top->title('ZigZag Volume Profile [ChartPrime]');
+    $top->configure(-bg => $bg);
+    $top->resizable(0, 0);
+
+    # Centrar sobre la ventana principal
+    my $pw = $self->{mw}->width;
+    my $ph = $self->{mw}->height;
+    my $px = $self->{mw}->x;
+    my $py = $self->{mw}->y;
+    $top->geometry(sprintf("+%d+%d", $px + int(($pw - 440)/2), $py + int(($ph - 520)/2)));
+
+    # Título del diálogo
+    $top->Label(
+        -text => 'ZigZag Volume Profile [ChartPrime]',
+        -bg   => $bg, -fg => $fg,
+        -font => 'Helvetica 12 bold',
+        -anchor => 'w',
+    )->pack(-fill => 'x', -padx => 16, -pady => [14, 4]);
+
+    # Línea separadora
+    $top->Frame(-bg => '#2D3245', -height => 1)->pack(-fill => 'x', -padx => 8, -pady => [0, 8]);
+
+    # Frame de contenido con scroll
+    my $content = $top->Frame(-bg => $bg)->pack(-fill => 'both', -expand => 1, -padx => 8);
+
+    # -------------------------------------------------------------------------
+    # Helper: fila de parámetro (label + widget)
+    # -------------------------------------------------------------------------
+    my $make_row = sub {
+        my ($parent, $label_text, $widget_cb) = @_;
+        my $row = $parent->Frame(-bg => $bg)->pack(-fill => 'x', -pady => 4);
+        $row->Label(
+            -text   => $label_text,
+            -bg     => $bg, -fg => $fg,
+            -font   => $font_lbl,
+            -anchor => 'w',
+            -width  => 30,
+        )->pack(-side => 'left', -padx => [0, 8]);
+        $widget_cb->($row);
+    };
+
+    # Helper: separador de grupo
+    my $make_group = sub {
+        my ($parent, $text) = @_;
+        $parent->Label(
+            -text   => uc($text),
+            -bg     => $bg, -fg => $fg_group,
+            -font   => $font_grp,
+            -anchor => 'w',
+        )->pack(-fill => 'x', -padx => 0, -pady => [12, 2]);
+        $parent->Frame(-bg => '#2D3245', -height => 1)->pack(-fill => 'x', -pady => [0, 6]);
+    };
+
+    # Helper: Spinbox estético
+    my $make_spin = sub {
+        my ($parent, $var_ref, $from, $to, $inc) = @_;
+        $inc //= 1;
+        my $sp = $parent->Spinbox(
+            -textvariable => $var_ref,
+            -from         => $from,
+            -to           => $to,
+            -increment    => $inc,
+            -width        => 8,
+            -bg           => $bg_field,
+            -fg           => $fg,
+            -insertbackground => $fg,
+            -buttonbackground => $bg_field,
+            -relief       => 'flat',
+            -font         => $font_lbl,
+        );
+        $sp->pack(-side => 'right');
+        return $sp;
+    };
+
+    # Helper: botón de color
+    my $make_color_btn = sub {
+        my ($parent, $col_ref) = @_;
+        my $btn;
+        $btn = $parent->Button(
+            -bg               => $$col_ref,
+            -activebackground => $$col_ref,
+            -width            => 3,
+            -relief           => 'flat',
+            -cursor           => 'hand2',
+            -command          => sub {
+                my $new_col = $top->chooseColor(
+                    -initialcolor => $$col_ref,
+                    -title        => 'Elegir color',
+                );
+                if (defined $new_col) {
+                    $$col_ref = $new_col;
+                    $btn->configure(-bg => $new_col, -activebackground => $new_col);
+                }
+            },
+        );
+        $btn->pack(-side => 'right', -padx => 2);
+        return $btn;
+    };
+
+    # =========================================================================
+    # Variables vinculadas a los parámetros actuales del indicador / overlay
+    # =========================================================================
+    my $v_profiles  = $zvp_ind->{max_profiles};
+    my $v_swing_len = $zvp_ind->{swing_length};
+    my $v_chan_w    = $zvp_ind->{channel_width};
+    my $v_bins      = $zvp_ind->{volume_bin_count} * 2;   # Pine muestra el doble
+    my $v_bin_w     = $self->{zvp_overlay}{bin_width_px};
+    my $v_poc_w     = $self->{zvp_overlay}{poc_width};
+    my $v_col_low   = $self->{zvp_overlay}{color_bin_low};
+    my $v_col_high  = $self->{zvp_overlay}{color_bin_high};
+    my $v_col_poc   = $self->{zvp_overlay}{color_poc};
+
+    # =========================================================================
+    # GENERAL
+    # =========================================================================
+    $make_row->($content,
+        'Amount of ZigZag Volume Profiles to display',
+        sub { $make_spin->($_[0], \$v_profiles, 1, 20, 1) },
+    );
+
+    # =========================================================================
+    # SWING CHANNEL
+    # =========================================================================
+    $make_group->($content, 'Swing Channel');
+
+    # Display (checkbox ligado al flag de visibilidad zvp_channel)
+    {
+        my $row = $content->Frame(-bg => $bg)->pack(-fill => 'x', -pady => 4);
+        $row->Label(
+            -text => 'Display', -bg => $bg, -fg => $fg,
+            -font => $font_lbl, -anchor => 'w', -width => 30,
+        )->pack(-side => 'left');
+        my $chk_var = $self->{visibility}{zvp_channel} ? 1 : 0;
+        $row->Checkbutton(
+            -variable         => \$chk_var,
+            -bg               => $bg,
+            -activebackground => $bg,
+            -selectcolor      => $accent,
+            -relief           => 'flat',
+            -command => sub {
+                $self->{visibility}{zvp_channel} = $chk_var;
+                $self->request_render();
+            },
+        )->pack(-side => 'right');
+    }
+
+    $make_row->($content, 'Longitud',
+        sub { $make_spin->($_[0], \$v_swing_len, 2, 500, 1) },
+    );
+    $make_row->($content, 'Width',
+        sub { $make_spin->($_[0], \$v_chan_w, 0.3, 2.0, 0.1) },
+    );
+
+    # =========================================================================
+    # VOLUMEPROFILE
+    # =========================================================================
+    $make_group->($content, 'VolumeProfile');
+
+    # Display (checkbox ligado al flag zvp_histogram)
+    {
+        my $row = $content->Frame(-bg => $bg)->pack(-fill => 'x', -pady => 4);
+        $row->Label(
+            -text => 'Display', -bg => $bg, -fg => $fg,
+            -font => $font_lbl, -anchor => 'w', -width => 30,
+        )->pack(-side => 'left');
+        my $chk_var = $self->{visibility}{zvp_histogram} ? 1 : 0;
+        $row->Checkbutton(
+            -variable         => \$chk_var,
+            -bg               => $bg,
+            -activebackground => $bg,
+            -selectcolor      => $accent,
+            -relief           => 'flat',
+            -command => sub {
+                $self->{visibility}{zvp_histogram} = $chk_var;
+                $self->request_render();
+            },
+        )->pack(-side => 'right');
+    }
+
+    $make_row->($content, 'Bins',
+        sub { $make_spin->($_[0], \$v_bins, 2, 20, 2) },
+    );
+    $make_row->($content, 'Bins Width',
+        sub { $make_spin->($_[0], \$v_bin_w, 1, 20, 1) },
+    );
+
+    # Fila de colores (bin_low y bin_high, igual que TradingView)
+    {
+        my $row = $content->Frame(-bg => $bg)->pack(-fill => 'x', -pady => 4);
+        $row->Label(
+            -text => 'Colors (Low / High)',
+            -bg   => $bg, -fg => $fg,
+            -font => $font_lbl, -anchor => 'w', -width => 30,
+        )->pack(-side => 'left');
+        $make_color_btn->($row, \$v_col_high);
+        $make_color_btn->($row, \$v_col_low);
+    }
+
+    # =========================================================================
+    # POC
+    # =========================================================================
+    $make_group->($content, 'PoC');
+
+    # Display (checkbox ligado al flag zvp_poc)
+    {
+        my $row = $content->Frame(-bg => $bg)->pack(-fill => 'x', -pady => 4);
+        $row->Label(
+            -text => 'Display', -bg => $bg, -fg => $fg,
+            -font => $font_lbl, -anchor => 'w', -width => 30,
+        )->pack(-side => 'left');
+        my $chk_var = $self->{visibility}{zvp_poc} ? 1 : 0;
+        $row->Checkbutton(
+            -variable         => \$chk_var,
+            -bg               => $bg,
+            -activebackground => $bg,
+            -selectcolor      => $accent,
+            -relief           => 'flat',
+            -command => sub {
+                $self->{visibility}{zvp_poc} = $chk_var;
+                $self->request_render();
+            },
+        )->pack(-side => 'right');
+    }
+
+    $make_row->($content, 'PoC Line Width',
+        sub { $make_spin->($_[0], \$v_poc_w, 1, 5, 1) },
+    );
+
+    {
+        my $row = $content->Frame(-bg => $bg)->pack(-fill => 'x', -pady => 4);
+        $row->Label(
+            -text => 'PoC Color',
+            -bg   => $bg, -fg => $fg,
+            -font => $font_lbl, -anchor => 'w', -width => 30,
+        )->pack(-side => 'left');
+        $make_color_btn->($row, \$v_col_poc);
+    }
+
+    # =========================================================================
+    # Botones Cancelar / Aceptar
+    # =========================================================================
+    $top->Frame(-bg => '#2D3245', -height => 1)->pack(-fill => 'x', -padx => 8, -pady => [12, 0]);
+
+    my $btn_frame = $top->Frame(-bg => $bg)->pack(-fill => 'x', -padx => 16, -pady => 10);
+
+    $btn_frame->Button(
+        -text             => 'Cancelar',
+        -bg               => $bg_field,
+        -fg               => $fg,
+        -activebackground => '#383D4A',
+        -activeforeground => '#FFFFFF',
+        -relief           => 'flat',
+        -font             => $font_btn,
+        -padx             => 16,
+        -pady             => 6,
+        -cursor           => 'hand2',
+        -command          => sub { $top->destroy() },
+    )->pack(-side => 'right', -padx => [8, 0]);
+
+    $btn_frame->Button(
+        -text             => 'Aceptar',
+        -bg               => $accent,
+        -fg               => '#FFFFFF',
+        -activebackground => '#1E4FD8',
+        -activeforeground => '#FFFFFF',
+        -relief           => 'flat',
+        -font             => $font_btn,
+        -padx             => 16,
+        -pady             => 6,
+        -cursor           => 'hand2',
+        -command          => sub {
+            # ── Aplicar parámetros al indicador ──────────────────────────
+            my $new_profiles  = int($v_profiles  + 0.5);
+            my $new_swing_len = int($v_swing_len + 0.5);
+            my $new_chan_w    = $v_chan_w + 0;
+            my $new_bins      = int(int($v_bins + 0.5) / 2);   # Pine: int(input/2)
+            my $new_bin_w     = int($v_bin_w + 0.5);
+            my $new_poc_w     = int($v_poc_w + 0.5);
+
+            # Validaciones mínimas
+            $new_profiles  = 1   if $new_profiles  < 1;
+            $new_profiles  = 20  if $new_profiles  > 20;
+            $new_swing_len = 2   if $new_swing_len < 2;
+            $new_swing_len = 500 if $new_swing_len > 500;
+            $new_bins      = 1   if $new_bins      < 1;
+            $new_bins      = 10  if $new_bins      > 10;
+            $new_chan_w    = 0.3 if $new_chan_w    < 0.3;
+            $new_chan_w    = 2.0 if $new_chan_w    > 2.0;
+
+            # Solo recalcula si cambió algo que afecta al cálculo
+            my $needs_recalc =
+                $zvp_ind->{max_profiles}     != $new_profiles  ||
+                $zvp_ind->{swing_length}     != $new_swing_len ||
+                $zvp_ind->{volume_bin_count} != $new_bins      ||
+                abs($zvp_ind->{channel_width} - $new_chan_w) > 0.001;
+
+            $zvp_ind->{max_profiles}     = $new_profiles;
+            $zvp_ind->{swing_length}     = $new_swing_len;
+            $zvp_ind->{channel_width}    = $new_chan_w;
+            $zvp_ind->{volume_bin_count} = $new_bins;
+
+            # Actualizar overlay
+            $self->{zvp_overlay}{bin_width_px}  = $new_bin_w;
+            $self->{zvp_overlay}{poc_width}     = $new_poc_w;
+            $self->{zvp_overlay}{color_bin_low}  = $v_col_low;
+            $self->{zvp_overlay}{color_bin_high} = $v_col_high;
+            $self->{zvp_overlay}{color_poc}      = $v_col_poc;
+
+            if ($needs_recalc) {
+                $zvp_ind->reset();
+                $zvp_ind->calculate_batch($self->{market_data});
+            }
+
+            $self->request_render();
+            $top->destroy();
+        },
+    )->pack(-side => 'right');
 }
 
 1;

@@ -150,6 +150,20 @@ $indicators->register('SMC_Structures', Market::Indicators::SMC_Structures->new(
 use Market::Indicators::ZigZag_Trend;
 $indicators->register('ZigZag_Trend', Market::Indicators::ZigZag_Trend->new(prd => 2));
 
+# Registrar el ZigZag Volume Profile [ChartPrime] (MPL-2.0)
+# Puerto de: "ZigZag Volume Profile [ChartPrime]" Pine Script v6
+# Parámetros fiel al original: swing_length=150, 5 bins a cada lado, 15 perfiles
+use Market::Indicators::ZigZag_VolumeProfile;
+$indicators->register('ZigZag_VolumeProfile',
+    Market::Indicators::ZigZag_VolumeProfile->new(
+        swing_length     => 150,   # Equivalente a swingLength del Pine
+        volume_bin_count => 5,     # Bins a cada lado (Pine: int(10/2)=5)
+        max_profiles     => 15,    # volumeProfilesQty del Pine
+        channel_width    => 1.0,   # channelWidthFactor del Pine
+        atr_period       => 200,   # ATR(200) del Pine
+    )
+);
+
 # ==============================================================================
 # Fase 2: Infraestructura Analítica de Volumen y VWAP
 # ==============================================================================
