@@ -52,29 +52,29 @@ sub new {
 
         # Hash de visibilidad granular de overlays
         # Cada clave controla una capa de dibujo independiente.
-        # 1 = visible, 0 = oculto. El overlay comprueba la clave antes de dibujar.
+        # 0 = oculto al arrancar (el usuario activa lo que necesite desde la sidebar)
         visibility => {
-            zigzag           => 1,  # ZigZag (LonesomeTheBlue)
-            bos_choch        => 1,  # Rupturas de Estructura (BOS / CHOCH)
-            structure_labels => 1,  # Etiquetas HH / HL / LH / LL
-            fvg              => 1,  # Fair Value Gaps
-            bsl              => 1,  # Buy-Side Liquidity
-            ssl              => 1,  # Sell-Side Liquidity
-            eqh_eql          => 1,  # Equal Highs / Equal Lows
-            liq_events       => 1,  # Sweeps, Grabs, Runs
+            zigzag           => 0,  # ZigZag (LonesomeTheBlue)
+            bos_choch        => 0,  # Rupturas de Estructura (BOS / CHOCH)
+            structure_labels => 0,  # Etiquetas HH / HL / LH / LL
+            fvg              => 0,  # Fair Value Gaps
+            bsl              => 0,  # Buy-Side Liquidity
+            ssl              => 0,  # Sell-Side Liquidity
+            eqh_eql          => 0,  # Equal Highs / Equal Lows
+            liq_events       => 0,  # Sweeps, Grabs, Runs
             # --- Fase 2: Volumen y VWAP ---
-            volume_profile   => 1,  # Perfil de Volumen (POC / VAH / VAL)
-            vp_histogram     => 1,  # Histograma horizontal del VP
-            vp_poc           => 1,  # Línea POC
-            vp_va            => 1,  # Líneas VAH / VAL
-            anchored_vwap    => 1,  # VWAP Multi-Pivot Anclado
-            vwap_markers     => 1,  # Marcadores de ancla del VWAP
-            vwap_labels      => 1,  # Etiquetas de valor VWAP
+            volume_profile   => 0,  # Perfil de Volumen (POC / VAH / VAL)
+            vp_histogram     => 0,  # Histograma horizontal del VP
+            vp_poc           => 0,  # Línea POC
+            vp_va            => 0,  # Líneas VAH / VAL
+            anchored_vwap    => 0,  # VWAP Multi-Pivot Anclado
+            vwap_markers     => 0,  # Marcadores de ancla del VWAP
+            vwap_labels      => 0,  # Etiquetas de valor VWAP
             # --- ZigZag Volume Profile [ChartPrime] ---
-            zvp_zigzag       => 1,  # Líneas ZigZag del perfil
-            zvp_channel      => 1,  # Canal de swing (ATR)
-            zvp_histogram    => 1,  # Histograma de volumen por tramo
-            zvp_poc          => 1,  # Línea POC por tramo
+            zvp_zigzag       => 0,  # Líneas ZigZag del perfil
+            zvp_channel      => 0,  # Canal de swing (ATR)
+            zvp_histogram    => 0,  # Histograma de volumen por tramo
+            zvp_poc          => 0,  # Línea POC por tramo
         },
         _sidebar_buttons => {},     # refs a widgets de botón para actualizar su estado
     };
