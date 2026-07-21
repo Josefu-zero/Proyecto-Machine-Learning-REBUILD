@@ -293,9 +293,6 @@ sub draw_time_axis {
         my $ts0 = $data_slice->[0]{timestamp};
         my $ts1 = $data_slice->[1]{timestamp};
         if ($ts0 =~ /T(\d{2}):(\d{2})/ && $ts1 =~ /T(\d{2}):(\d{2})/) {
-            my $min0 = $1 * 60 + $2;
-            my $min1 = $3 * 60 + $4 if $ts1 =~ /T(\d{2}):(\d{2})/;
-            # Recalcular con los valores correctos
             my ($h0, $m0) = ($ts0 =~ /T(\d{2}):(\d{2})/);
             my ($h1, $m1) = ($ts1 =~ /T(\d{2}):(\d{2})/);
             if (defined $h0 && defined $h1) {
