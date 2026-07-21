@@ -64,8 +64,8 @@ sub new {
             eqh_eql          => 0,  # Equal Highs / Equal Lows
             liq_events       => 0,  # Sweeps, Grabs, Runs
             # --- ZigZag Fibo ---
-            fibo_zigzag      => 1,
-            fibo_levels      => 1,
+            fibo_zigzag      => 0,
+            fibo_levels      => 0,
             # --- Fase 2: Volumen y VWAP ---
             volume_profile   => 0,  # Perfil de Volumen (POC / VAH / VAL)
             vp_histogram     => 0,  # Histograma horizontal del VP
