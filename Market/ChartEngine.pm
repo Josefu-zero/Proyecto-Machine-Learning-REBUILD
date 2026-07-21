@@ -15,6 +15,7 @@ use Market::Overlays::ZigZag_Trend;
 use Market::Overlays::Volume_Profile;
 use Market::Overlays::Anchored_VWAP;
 use Market::Overlays::ZigZag_VolumeProfile;
+use Market::Overlays::ZigZag_Fibo;
 sub new {
     my ($class, %args) = @_;
     
@@ -62,6 +63,9 @@ sub new {
             ssl              => 0,  # Sell-Side Liquidity
             eqh_eql          => 0,  # Equal Highs / Equal Lows
             liq_events       => 0,  # Sweeps, Grabs, Runs
+            # --- ZigZag Fibo ---
+            fibo_zigzag      => 1,
+            fibo_levels      => 1,
             # --- Fase 2: Volumen y VWAP ---
             volume_profile   => 0,  # Perfil de Volumen (POC / VAH / VAL)
             vp_histogram     => 0,  # Histograma horizontal del VP
@@ -92,6 +96,8 @@ sub new {
     $self->{vp_overlay}        = Market::Overlays::Volume_Profile->new(canvas => $self->{price_canvas});
     $self->{vwap_overlay}      = Market::Overlays::Anchored_VWAP->new(canvas => $self->{price_canvas});
     $self->{zvp_overlay}       = Market::Overlays::ZigZag_VolumeProfile->new(canvas => $self->{price_canvas});
+    $self->{zz_fibo_overlay}   = Market::Overlays::ZigZag_Fibo->new(canvas => $self->{price_canvas});
+    
     $self->bind_events();
     $self->_build_sidebar($args{sidebar}) if defined $args{sidebar};
     return $self;
@@ -177,6 +183,14 @@ sub render {
         $self->{smc_overlay}->render($scale, $smc_slice, $start, $vis);
     } else {
         $self->{price_canvas}->delete('smc_overlay');
+    }
+
+    # =========================================================
+    # Overlay ZigZag Fibo
+    # =========================================================
+    my $zz_fibo_indicator = $self->{indicators}{indicators}{'ZigZag_Fibo'};
+    if ($zz_fibo_indicator) {
+        $self->{zz_fibo_overlay}->render($scale, $zz_fibo_indicator, $start, $vis);
     }
 
     # ========================================================
@@ -1122,6 +1136,11 @@ sub _build_sidebar {
     $make_toggle->('zvp_histogram',    'HH  Histograma Vol');
     $make_toggle->('zvp_poc',          'PC  POC por Tramo');
     $make_action->('\x{2699}  Configurar ZVP', sub { $self->_open_zvp_config() });
+
+    # ── Sección: Fibonacci ───────────────────────────────────
+    $sep->('Fibonacci');
+    $make_toggle->('fibo_zigzag',      'FIB ZigZag');
+    $make_toggle->('fibo_levels',      'FIB Levels');
 
     # ── Sección: Replay ──────────────────────────────────────
     $sep->('Replay');

@@ -164,6 +164,10 @@ $indicators->register('ZigZag_VolumeProfile',
     )
 );
 
+# Registrar el ZigZag Multi Time Frame con Fibonacci Retracement
+use Market::Indicators::ZigZag_Fibo;
+$indicators->register('ZigZag_Fibo', Market::Indicators::ZigZag_Fibo->new(prd => 2));
+
 # ==============================================================================
 # Fase 2: Infraestructura Analítica de Volumen y VWAP
 # ==============================================================================
