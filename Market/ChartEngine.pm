@@ -56,12 +56,24 @@ sub new {
         # 0 = oculto al arrancar (el usuario activa lo que necesite desde la sidebar)
         visibility => {
             zigzag           => 0,  # ZigZag (LonesomeTheBlue)
-            bos_choch        => 0,  # Rupturas de Estructura (BOS / CHOCH)
-            structure_labels => 0,  # Etiquetas HH / HL / LH / LL
-            fvg              => 0,  # Fair Value Gaps
+            # --- SMC Pro [Neon] — Estructura Macro (Swing) ---
+            bos_choch        => 1,  # BOS / CHoCH swing (lineas solidas)
+            structure_labels => 1,  # Etiquetas HH / HL / LH / LL macro
+            strong_weak_hl   => 1,  # Strong / Weak High & Low (trailing)
+            # --- SMC Pro [Neon] — Estructura Interna ---
+            int_bos_choch        => 0,  # BOS / CHoCH internos (dashed)
+            int_structure_labels => 0,  # Etiquetas HH/HL/LH/LL internos
+            # --- SMC Pro [Neon] — Order Blocks ---
+            order_blocks     => 1,  # Order Blocks de swing
+            int_order_blocks => 0,  # Order Blocks internos
+            # --- SMC Pro [Neon] — Zonas ---
+            fvg              => 1,  # Fair Value Gaps
+            eq_highs_lows    => 1,  # Equal Highs / Equal Lows
+            premium_discount => 0,  # Zonas Premium / Equilibrium / Discount
+            # --- Liquidez ---
             bsl              => 0,  # Buy-Side Liquidity
             ssl              => 0,  # Sell-Side Liquidity
-            eqh_eql          => 0,  # Equal Highs / Equal Lows
+            eqh_eql          => 0,  # Equal Highs / Equal Lows (Liquidity)
             liq_events       => 0,  # Sweeps, Grabs, Runs
             # --- ZigZag Fibo ---
             fibo_zigzag      => 0,
@@ -69,16 +81,16 @@ sub new {
             # --- Fase 2: Volumen y VWAP ---
             volume_profile   => 0,  # Perfil de Volumen (POC / VAH / VAL)
             vp_histogram     => 0,  # Histograma horizontal del VP
-            vp_poc           => 0,  # Línea POC
-            vp_va            => 0,  # Líneas VAH / VAL
+            vp_poc           => 0,  # Linea POC
+            vp_va            => 0,  # Lineas VAH / VAL
             anchored_vwap    => 0,  # VWAP Multi-Pivot Anclado
             vwap_markers     => 0,  # Marcadores de ancla del VWAP
             vwap_labels      => 0,  # Etiquetas de valor VWAP
             # --- ZigZag Volume Profile [ChartPrime] ---
-            zvp_zigzag       => 0,  # Líneas ZigZag del perfil
+            zvp_zigzag       => 0,  # Lineas ZigZag del perfil
             zvp_channel      => 0,  # Canal de swing (ATR)
             zvp_histogram    => 0,  # Histograma de volumen por tramo
-            zvp_poc          => 0,  # Línea POC por tramo
+            zvp_poc          => 0,  # Linea POC por tramo
         },
         _sidebar_buttons => {},     # refs a widgets de botón para actualizar su estado
     };
@@ -1102,18 +1114,34 @@ sub _build_sidebar {
         )->pack(-fill => 'x', -padx => 4, -pady => 1);
     };
 
-    # ── Sección: Estructura de Mercado ───────────────────────
-    $sep->('Estructura');
-    $make_toggle->('zigzag',           'ZZ  ZigZag');
-    $make_toggle->('bos_choch',        'BB  BOS / CHOCH');
+    # ── Sección: SMC Pro [Neon] — Estructura Swing ───────────
+    $sep->('SMC Pro — Swing');
+    $make_toggle->('bos_choch',        'BB  BOS / CHoCH');
     $make_toggle->('structure_labels', 'HH  HH / HL / LH / LL');
+    $make_toggle->('strong_weak_hl',   'SW  Strong / Weak H&L');
+    $make_toggle->('order_blocks',     'OB  Order Blocks');
+
+    # ── Sección: SMC Pro [Neon] — Estructura Interna ─────────
+    $sep->('SMC Pro — Interno');
+    $make_toggle->('int_bos_choch',        'iB  BOS / CHoCH (i)');
+    $make_toggle->('int_structure_labels', 'iH  HH / HL (i)');
+    $make_toggle->('int_order_blocks',     'iO  Order Blocks (i)');
+
+    # ── Sección: SMC Pro [Neon] — Zonas ──────────────────────
+    $sep->('SMC Pro — Zonas');
     $make_toggle->('fvg',              'FV  Fair Value Gap');
+    $make_toggle->('eq_highs_lows',    'EQ  EQH / EQL');
+    $make_toggle->('premium_discount', 'PD  Premium / Discount');
+
+    # ── Sección: ZigZag ──────────────────────────────────────
+    $sep->('ZigZag');
+    $make_toggle->('zigzag',           'ZZ  ZigZag');
 
     # ── Sección: Liquidez ────────────────────────────────────
     $sep->('Liquidez');
     $make_toggle->('bsl',              'UP  Buy-Side (BSL)');
     $make_toggle->('ssl',              'DN  Sell-Side (SSL)');
-    $make_toggle->('eqh_eql',         'EQ  EQH / EQL');
+    $make_toggle->('eqh_eql',         'EQ  EQH / EQL (Liq)');
     $make_toggle->('liq_events',       'SW  Sweeps / Grabs');
 
     # ── Sección: Volume Profile (Fase 2) ─────────────────────
