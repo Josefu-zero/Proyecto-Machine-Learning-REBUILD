@@ -1141,6 +1141,7 @@ sub _build_sidebar {
     $sep->('Fibonacci');
     $make_toggle->('fibo_zigzag',      'FIB ZigZag');
     $make_toggle->('fibo_levels',      'FIB Levels');
+    $make_action->('\x{2699}  Configurar Fibo', sub { $self->_open_zz_fibo_config() });
 
     # ── Sección: Replay ──────────────────────────────────────
     $sep->('Replay');
@@ -1495,6 +1496,124 @@ sub _open_zvp_config {
             }
 
             $self->request_render();
+            $top->destroy();
+        },
+    )->pack(-side => 'right');
+}
+
+sub _open_zz_fibo_config {
+    my ($self) = @_;
+
+    my $zz_fibo_ind = $self->{indicators}{indicators}{'ZigZag_Fibo'};
+    unless (defined $zz_fibo_ind) {
+        $self->{mw}->messageBox(
+            -title   => 'ZZ Fibo Config',
+            -message => 'El indicador ZigZag_Fibo no está registrado.',
+            -type    => 'OK',
+        );
+        return;
+    }
+
+    # Colores del tema
+    my $bg        = '#131722';
+    my $bg_panel  = '#1A1E2E';
+    my $bg_field  = '#2A2E39';
+    my $fg        = '#D1D4DC';
+    my $fg_label  = '#8892A4';
+    my $accent    = '#2962FF';
+    
+    my $top = $self->{mw}->Toplevel(-bg => $bg);
+    $top->title("Configuración de ZigZag Fibo");
+    $top->geometry("400x200");
+    $top->transient($self->{mw});
+    $top->grab();
+
+    my $content = $top->Frame(-bg => $bg_panel)->pack(-fill => 'both', -expand => 1, -padx => 15, -pady => 15);
+    
+    my $make_row = sub {
+        my ($parent, $label_text, $widget_cb) = @_;
+        my $f = $parent->Frame(-bg => $bg_panel)->pack(-fill => 'x', -pady => 6);
+        $f->Label(-text => $label_text, -bg => $bg_panel, -fg => $fg_label, -anchor => 'w', -width => 25)
+          ->pack(-side => 'left');
+        my $w = $widget_cb->($f);
+        $w->pack(-side => 'right', -fill => 'x', -expand => 1, -padx => [10, 0]);
+        return $f;
+    };
+    
+    my $make_spin = sub {
+        my ($parent, $var_ref, $from, $to, $inc) = @_;
+        return $parent->Spinbox(
+            -textvariable => $var_ref,
+            -from => $from, -to => $to, -increment => $inc,
+            -bg => $bg_field, -fg => $fg,
+            -buttonbackground => $bg_field,
+            -relief => 'flat', -highlightthickness => 1, -highlightbackground => $bg_field,
+            -width => 10
+        );
+    };
+
+    my $v_prd = $zz_fibo_ind->{prd};
+    my $v_tf  = $zz_fibo_ind->{tf} // 'D';
+
+    $make_row->($content,
+        'ZigZag Period',
+        sub { $make_spin->($_[0], \$v_prd, 1, 30, 1) },
+    );
+
+    # Fila de botones para Timeframe
+    my $tf_frame = $content->Frame(-bg => $bg_panel)->pack(-fill => 'x', -pady => 15);
+    $tf_frame->Label(-text => 'Timeframe', -bg => $bg_panel, -fg => $fg_label, -anchor => 'w', -width => 15)
+      ->pack(-side => 'left');
+    
+    my $tf_btn_frame = $tf_frame->Frame(-bg => $bg_panel)->pack(-side => 'right', -fill => 'x', -expand => 1);
+    
+    my @tf_options = ('1m', '5m', '15m', '1h', '2h', '4h', 'D', 'W');
+    my %tf_btns;
+    
+    my $update_tf_btns = sub {
+        for my $opt (@tf_options) {
+            if ($v_tf eq $opt) {
+                $tf_btns{$opt}->configure(-bg => $accent, -fg => '#FFFFFF');
+            } else {
+                $tf_btns{$opt}->configure(-bg => $bg_field, -fg => $fg);
+            }
+        }
+    };
+
+    for my $opt (@tf_options) {
+        $tf_btns{$opt} = $tf_btn_frame->Button(
+            -text => $opt,
+            -bg => $bg_field, -fg => $fg, -relief => 'flat',
+            -activebackground => $accent, -activeforeground => '#FFFFFF',
+            -command => sub {
+                $v_tf = $opt;
+                $update_tf_btns->();
+            }
+        )->pack(-side => 'left', -padx => 2, -fill => 'x', -expand => 1);
+    }
+    
+    $update_tf_btns->();
+
+    # Botones
+    my $btn_frame = $top->Frame(-bg => $bg)->pack(-fill => 'x', -padx => 15, -pady => 15);
+    
+    $btn_frame->Button(
+        -text => 'Cancelar', -bg => $bg_field, -fg => $fg, -relief => 'flat',
+        -command => sub { $top->destroy() }
+    )->pack(-side => 'left', -padx => [0, 10]);
+
+    $btn_frame->Button(
+        -text => 'Aceptar', -bg => $accent, -fg => '#FFFFFF', -relief => 'flat',
+        -command => sub {
+            my $new_prd = $v_prd + 0;
+            
+            if ($zz_fibo_ind->{prd} != $new_prd || $zz_fibo_ind->{tf} ne $v_tf) {
+                $zz_fibo_ind->{prd} = $new_prd;
+                $zz_fibo_ind->{tf} = $v_tf;
+                $zz_fibo_ind->reset();
+                $zz_fibo_ind->calculate_batch($self->{market_data});
+                $self->request_render();
+            }
             $top->destroy();
         },
     )->pack(-side => 'right');

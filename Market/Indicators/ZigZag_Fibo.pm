@@ -8,7 +8,8 @@ use List::Util qw(max min);
 sub new {
     my ($class, %args) = @_;
     my $self = {
-        prd => $args{prd} // 2, # Periodo (por defecto 2 días)
+        tf  => $args{tf}  // 'D', # Resolución (1m, 5m, 15m, 1h, 2h, 4h, D, W)
+        prd => $args{prd} // 2,   # Periodo (por defecto 2)
     };
     bless $self, $class;
     $self->reset();
@@ -112,6 +113,33 @@ sub _update_zigzag {
     }
 }
 
+sub _get_tf_key {
+    my ($self, $ts) = @_;
+    my $tf = $self->{tf};
+    if ($ts =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/) {
+        my ($y, $m, $d, $H, $M) = ($1, $2, $3, $4, $5);
+        if ($tf eq '1m')  { return "$y-$m-$d $H:$M"; }
+        if ($tf eq '5m')  { return sprintf("%s-%s-%s %02d:%02d", $y, $m, $d, $H, int($M/5)*5); }
+        if ($tf eq '15m') { return sprintf("%s-%s-%s %02d:%02d", $y, $m, $d, $H, int($M/15)*15); }
+        if ($tf eq '1h')  { return "$y-$m-$d $H"; }
+        if ($tf eq '2h')  { return sprintf("%s-%s-%s %02d", $y, $m, $d, int($H/2)*2); }
+        if ($tf eq '4h')  { return sprintf("%s-%s-%s %02d", $y, $m, $d, int($H/4)*4); }
+        if ($tf eq 'D')   { return "$y-$m-$d"; }
+        if ($tf eq 'W')   {
+            use Time::Local;
+            # Aproximación simple usando timelocal
+            my $time = eval { timegm(0, $M, $H, $d, $m - 1, $y) };
+            if ($@ || !$time) { return "$y-W"; }
+            my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($time);
+            my $days_since_monday = ($wday == 0) ? 6 : $wday - 1;
+            my $monday = $time - ($days_since_monday * 86400);
+            my ($lmday, $lmon, $lyear) = (gmtime($monday))[3,4,5];
+            return sprintf("%04d-%02d-%02d", $lyear+1900, $lmon+1, $lmday);
+        }
+    }
+    return $ts;
+}
+
 sub _process_bar {
     my ($self, $bar_idx, $candle, $market_data) = @_;
     
@@ -123,16 +151,14 @@ sub _process_bar {
     push @{ $self->{_highs} }, $h;
     push @{ $self->{_lows}  }, $l;
     
-    # Detectar cambio de día (MTF logic: tf = 'D')
-    if ($ts =~ /^(\d{4}-\d{2}-\d{2})/) {
-        my $day = $1;
-        if (!defined $self->{_current_day} || $self->{_current_day} ne $day) {
-            $self->{_current_day} = $day;
-            push @{ $self->{_day_starts} }, $bar_idx;
-            # Mantener solo prd días
-            if (scalar @{ $self->{_day_starts} } > $self->{prd}) {
-                shift @{ $self->{_day_starts} };
-            }
+    # Detectar cambio de bloque de tiempo (MTF logic)
+    my $tf_key = $self->_get_tf_key($ts);
+    if (!defined $self->{_current_day} || $self->{_current_day} ne $tf_key) {
+        $self->{_current_day} = $tf_key;
+        push @{ $self->{_day_starts} }, $bar_idx;
+        # Mantener solo prd periodos
+        if (scalar @{ $self->{_day_starts} } > $self->{prd}) {
+            shift @{ $self->{_day_starts} };
         }
     }
     
