@@ -60,7 +60,7 @@ sub set_scale {
 }
 
 sub render {
-    my ($self, $data_slice) = @_;
+    my ($self, $data_slice, $prev_candle_ts) = @_;
 
     $self->{current_slice} = $data_slice;
 
@@ -72,7 +72,7 @@ sub render {
     $c->delete('candle');
     $c->delete('volume');
 
-    $self->draw_time_axis($data_slice);
+    $self->draw_time_axis($data_slice, $prev_candle_ts);
     $self->draw_volume($data_slice);
 
     # ================================================================
@@ -239,110 +239,157 @@ sub draw_crosshair {
 }
 
 # ================================================================
-# ESCALA DE TIEMPO ESTILO TRADINGVIEW
+# ESCALA DE TIEMPO ESTILO TRADINGVIEW — alineada al reloj
 #
-# Reglas (igual que TV):
-#   - Si la vela es la PRIMERA DEL DÍA → mostrar "DD/MM" (pivote)
-#   - Si NO es primera del día          → mostrar "HH:MM"
-#   - Las etiquetas se recalculan en cada render (se mueven con drag)
-#   - El pivote lleva una línea vertical más brillante
-#   - Espaciado mínimo entre etiquetas para evitar solapamiento
+# Reglas:
+#   - La primera vela de cada día → etiqueta "DD/MM" (pivote, línea sólida)
+#   - Las demás velas → etiqueta "HH:MM" solo si caen en un boundary de
+#     intervalo alineado al reloj (5m, 15m, 30m, 1h…).
+#   - El intervalo se elige automáticamente según el zoom para mantener
+#     un espaciado mínimo de ~80px entre etiquetas.
+#   - Las posiciones dependen del TIEMPO REAL de cada barra, no de su
+#     índice dentro del slice → estables durante el drag en cualquier
+#     dirección, con o sin separador de día visible.
 # ================================================================
 sub draw_time_axis {
-    my ($self, $data_slice) = @_;
+    my ($self, $data_slice, $prev_candle_ts) = @_;
     my $c = $self->{canvas};
     my $s = $self->{scale};
 
     return unless @$data_slice;
 
-    my $height       = $s->{height};
-    my $chart_width  = $s->_drawable_width();
-    my $n            = @$data_slice;
+    my $height      = $s->{height};
+    my $chart_width = $s->_drawable_width();
+    my $n           = @$data_slice;
 
     $c->delete('time_axis');
 
-    # --- Paso 1: marcar índices pivote (primera vela de cada día) ---
-    my %is_pivot;
+    # ── Paso 1: detectar cambios de día ─────────────────────────────────────
+    # Sembramos $prev_day con el día de la vela ANTERIOR al slice (si existe),
+    # para no marcar falsamente la primera barra visible como "primer día".
     my $prev_day = '';
+    if (defined $prev_candle_ts && $prev_candle_ts =~ /(\d{4}-\d{2}-\d{2})T/) {
+        $prev_day = $1;
+    }
+
+    my %is_pivot;     # índice => 'DD/MM' label text
     for my $i (0 .. $n - 1) {
-        my $ts = $data_slice->[$i]->{timestamp};
-        if ($ts =~ /(\d{4}-\d{2}-\d{2})T/) {
-            my $day = $1;
+        my $ts = $data_slice->[$i]{timestamp};
+        if ($ts =~ /(\d{4})-(\d{2})-(\d{2})T/) {
+            my ($yyyy, $mm, $dd) = ($1, $2, $3);
+            my $day = "$yyyy-$mm-$dd";
             if ($day ne $prev_day) {
-                $is_pivot{$i} = $day;
+                $is_pivot{$i} = "$dd/$mm";   # texto de la etiqueta
                 $prev_day = $day;
             }
         }
     }
 
-    # --- Paso 2: calcular paso mínimo entre etiquetas ---
-    # Queremos etiquetas cada ~80px como mínimo (evitar solapamiento)
-    my $min_px_gap   = 80;
-    my $candle_w     = $chart_width / $s->{visible_bars};
-    my $min_idx_gap  = ($candle_w > 0) ? int($min_px_gap / $candle_w) : 1;
-    $min_idx_gap     = 1 if $min_idx_gap < 1;
-
-    # --- Paso 3: seleccionar qué índices dibujar ---
-    # Siempre incluimos los pivotes, y llenamos el resto respetando el gap
-    my @label_indices;
-    my $last_drawn = -9999;
-
-    for my $i (0 .. $n - 1) {
-        my $is_piv = exists $is_pivot{$i};
-        if ($is_piv || ($i - $last_drawn) >= $min_idx_gap) {
-            push @label_indices, $i;
-            $last_drawn = $i;
+    # ── Paso 2: determinar la temporalidad real de las barras ────────────────
+    # Calculamos la diferencia en minutos entre las dos primeras barras
+    # para saber si estamos en 1m, 5m, 15m, etc.
+    my $bar_tf_min = 1;
+    if ($n >= 2) {
+        my $ts0 = $data_slice->[0]{timestamp};
+        my $ts1 = $data_slice->[1]{timestamp};
+        if ($ts0 =~ /T(\d{2}):(\d{2})/ && $ts1 =~ /T(\d{2}):(\d{2})/) {
+            my $min0 = $1 * 60 + $2;
+            my $min1 = $3 * 60 + $4 if $ts1 =~ /T(\d{2}):(\d{2})/;
+            # Recalcular con los valores correctos
+            my ($h0, $m0) = ($ts0 =~ /T(\d{2}):(\d{2})/);
+            my ($h1, $m1) = ($ts1 =~ /T(\d{2}):(\d{2})/);
+            if (defined $h0 && defined $h1) {
+                my $diff = abs(($h1 * 60 + $m1) - ($h0 * 60 + $m0));
+                # Manejar cruce de medianoche
+                $diff = 1440 - $diff if $diff > 720;
+                $bar_tf_min = $diff if $diff > 0;
+            }
         }
     }
 
-    # --- Paso 4: dibujar ---
-    for my $i (@label_indices) {
-        my $candle = $data_slice->[$i];
-        my $x      = $s->index_to_center_x($i);
-        my $ts     = $candle->{timestamp};
+    # ── Paso 3: elegir intervalo de reloj alineado ───────────────────────────
+    # Queremos ~80px entre etiquetas. Calculamos cuántos minutos necesitamos
+    # entre etiquetas para lograrlo, y elegimos el intervalo "redondo" más
+    # pequeño que cumpla esa condición.
+    my $min_px_gap  = 80;
+    my $candle_w    = ($s->{visible_bars} > 0) ? $chart_width / $s->{visible_bars} : 1;
+    $candle_w       = 0.1 if $candle_w <= 0;
 
-        my ($label, $is_piv);
-        if (exists $is_pivot{$i}) {
-            # Pivote → mostrar fecha corta  "DD/MM"
-            if ($ts =~ /\d{4}-(\d{2})-(\d{2})T/) {
-                $label = "$2/$1";
-            }
-            $is_piv = 1;
-        } else {
-            # Hora normal → solo "HH:MM"
-            if ($ts =~ /T(\d{2}:\d{2})/) {
-                $label = $1;
-            }
-            $is_piv = 0;
+    # Minutos necesarios entre etiquetas para tener al menos $min_px_gap px
+    my $target_min  = ($min_px_gap / $candle_w) * $bar_tf_min;
+
+    # Intervalos "redondos" candidatos (en minutos)
+    my @nice = (1, 2, 5, 10, 15, 20, 30, 60, 120, 180, 240, 360, 480, 720, 1440);
+    my $interval = $nice[-1];
+    for my $iv (@nice) {
+        if ($iv >= $target_min) {
+            $interval = $iv;
+            last;
+        }
+    }
+
+    # ── Paso 4: seleccionar qué barras reciben etiqueta ─────────────────────
+    # Una barra recibe etiqueta de HORA si su tiempo (en minutos desde medianoche)
+    # es divisible por $interval.  Esto es estable al drag porque depende solo
+    # del tiempo real de cada barra, no de su posición en el slice.
+    my @label_indices;
+    my $last_x = -$min_px_gap - 1;   # para asegurar que la primera etiqueta pase
+
+    for my $i (0 .. $n - 1) {
+        my $is_piv = exists $is_pivot{$i};
+
+        if ($is_piv) {
+            # El pivote de día siempre se dibuja (puede solapar el hueco mínimo)
+            push @label_indices, $i;
+            my $x = $s->index_to_center_x($i);
+            $last_x = $x;
+            next;
         }
 
+        my $ts = $data_slice->[$i]{timestamp};
+        if ($ts =~ /T(\d{2}):(\d{2})/) {
+            my $day_min = $1 * 60 + $2;
+            if ($day_min % $interval == 0) {
+                my $x = $s->index_to_center_x($i);
+                # Respetar gap mínimo con la etiqueta anterior
+                if ($x - $last_x >= $min_px_gap) {
+                    push @label_indices, $i;
+                    $last_x = $x;
+                }
+            }
+        }
+    }
+
+    # ── Paso 5: dibujar ──────────────────────────────────────────────────────
+    for my $i (@label_indices) {
+        my $x      = $s->index_to_center_x($i);
+        my $is_piv = exists $is_pivot{$i};
+        my $label  = $is_piv ? $is_pivot{$i} : do {
+            my $ts = $data_slice->[$i]{timestamp};
+            ($ts =~ /T(\d{2}:\d{2})/) ? $1 : undef;
+        };
         next unless defined $label;
 
         # Línea vertical de fondo
         if ($is_piv) {
-            # Pivote: línea más brillante y sólida
             $c->createLine($x, 0, $x, $height,
                 -fill  => '#4a4f66',
                 -width => 1,
-                -tags  => 'time_axis'
-            );
+                -tags  => 'time_axis');
         } else {
             $c->createLine($x, 0, $x, $height,
                 -fill => '#2a2e39',
                 -dash => '.',
-                -tags => 'time_axis'
-            );
+                -tags => 'time_axis');
         }
 
-        # Texto de la etiqueta
-        $c->createText(
-            $x, $height - 10,
+        # Etiqueta de texto
+        $c->createText($x, $height - 10,
             -text   => $label,
             -fill   => $is_piv ? '#ffffff' : '#d1d4dc',
             -anchor => 's',
             -font   => $is_piv ? ['Helvetica', 9, 'bold'] : ['Helvetica', 9],
-            -tags   => 'time_axis'
-        );
+            -tags   => 'time_axis');
     }
 }
 

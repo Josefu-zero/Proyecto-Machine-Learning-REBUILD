@@ -175,7 +175,17 @@ sub render {
     );
 
     $self->{price_panel}->set_scale($scale);
-    $self->{price_panel}->render($data_slice);
+
+    # Obtener el timestamp de la vela inmediatamente anterior al slice visible.
+    # Esto permite que draw_time_axis sepa qué día había ANTES de la ventana,
+    # y así no trate erróneamente la primera barra visible como "primera del día".
+    my $prev_candle_ts = '';
+    if ($start > 0) {
+        my $prev = $self->{market_data}->get_candle($start - 1);
+        $prev_candle_ts = $prev->{timestamp} if defined $prev;
+    }
+
+    $self->{price_panel}->render($data_slice, $prev_candle_ts);
 
     my $vis = $self->{visibility};
 
