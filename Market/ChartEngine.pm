@@ -16,6 +16,7 @@ use Market::Overlays::Volume_Profile;
 use Market::Overlays::Anchored_VWAP;
 use Market::Overlays::ZigZag_VolumeProfile;
 use Market::Overlays::ZigZag_Fibo;
+use Market::Overlays::MTF_Levels;
 sub new {
     my ($class, %args) = @_;
     
@@ -91,6 +92,10 @@ sub new {
             zvp_channel      => 0,  # Canal de swing (ATR)
             zvp_histogram    => 0,  # Histograma de volumen por tramo
             zvp_poc          => 0,  # Linea POC por tramo
+            # --- MTF Levels (PDH/PDL, PWH/PWL, PMH/PML) ---
+            mtf_daily        => 1,  # Previous Day H/L
+            mtf_weekly       => 1,  # Previous Week H/L
+            mtf_monthly      => 1,  # Previous Month H/L
         },
         _sidebar_buttons => {},     # refs a widgets de botón para actualizar su estado
     };
@@ -109,6 +114,7 @@ sub new {
     $self->{vwap_overlay}      = Market::Overlays::Anchored_VWAP->new(canvas => $self->{price_canvas});
     $self->{zvp_overlay}       = Market::Overlays::ZigZag_VolumeProfile->new(canvas => $self->{price_canvas});
     $self->{zz_fibo_overlay}   = Market::Overlays::ZigZag_Fibo->new(canvas => $self->{price_canvas});
+    $self->{mtf_overlay}       = Market::Overlays::MTF_Levels->new(canvas => $self->{price_canvas});
     
     $self->bind_events();
     $self->_build_sidebar($args{sidebar}) if defined $args{sidebar};
@@ -273,6 +279,18 @@ sub render {
         }
     } else {
         $self->{price_canvas}->delete('zvp_overlay');
+    }
+
+    # ========================================================
+    # Overlay MTF Levels (PDH/PDL / PWH/PWL / PMH/PML)
+    # ========================================================
+    if (($vis->{mtf_daily} // 0)
+     || ($vis->{mtf_weekly} // 0)
+     || ($vis->{mtf_monthly} // 0)) {
+        my $mtf_levels = $self->{market_data}->get_mtf_levels();
+        $self->{mtf_overlay}->render($scale, $mtf_levels, $vis);
+    } else {
+        $self->{price_canvas}->delete('mtf_levels');
     }
 
     # Panel Secundario (ATR)
@@ -1167,7 +1185,14 @@ sub _build_sidebar {
     $make_toggle->('vwap_markers',     'MM  Marcadores Ancla');
     $make_toggle->('vwap_labels',      'LL  Etiquetas VWAP');
 
-    # ── Sección: ZigZag Volume Profile [ChartPrime] ───────────
+    # ── Sección: MTF Levels ──────────────────────────────────────────────────
+    $sep->('MTF Levels');
+    $make_toggle->('mtf_daily',        'DH  Show Daily H/L');
+    $make_toggle->('mtf_weekly',       'WH  Show Weekly H/L');
+    $make_toggle->('mtf_monthly',      'MH  Show Monthly H/L');
+    $make_action->('\x{2699}  Configurar MTF', sub { $self->_open_mtf_levels_config() });
+
+    # ── Sección: ZZ Volume Profile [ChartPrime] ───────────
     $sep->('ZZ Volume Profile');
     $make_toggle->('zvp_zigzag',       'ZZ  ZZ Lineas');
     $make_toggle->('zvp_channel',      'CH  Canal ATR');
@@ -1652,6 +1677,116 @@ sub _open_zz_fibo_config {
                 $zz_fibo_ind->calculate_batch($self->{market_data});
                 $self->request_render();
             }
+            $top->destroy();
+        },
+    )->pack(-side => 'right');
+}
+
+# =============================================================================
+# _open_mtf_levels_config — Diálogo de configuración de MTF Levels
+# Permite cambiar colores y estilo de línea para Daily, Weekly y Monthly.
+# Estilo del menú: igual al resto de la aplicación (tema oscuro).
+# =============================================================================
+sub _open_mtf_levels_config {
+    my ($self) = @_;
+
+    my $ovl = $self->{mtf_overlay};
+
+    my $bg        = '#131722';
+    my $bg_panel  = '#1A1E2E';
+    my $bg_field  = '#2A2E39';
+    my $fg        = '#D1D4DC';
+    my $fg_label  = '#8892A4';
+    my $accent    = '#2962FF';
+
+    my $top = $self->{mw}->Toplevel(-bg => $bg);
+    $top->title('MTF Levels');
+    $top->geometry('460x280');
+    $top->transient($self->{mw});
+    $top->grab();
+
+    # Título
+    $top->Label(
+        -text   => 'MTF Levels — Configuración',
+        -bg     => $bg, -fg => $fg,
+        -font   => 'Helvetica 12 bold',
+        -anchor => 'w',
+    )->pack(-fill => 'x', -padx => 16, -pady => [14, 4]);
+
+    my $content = $top->Frame(-bg => $bg_panel)->pack(-fill => 'both', -expand => 1, -padx => 12, -pady => 8);
+
+    my @styles  = ('SOLID', 'DASHED', 'DOTTED');
+
+    # --- Fila helper: Etiqueta | Selector de estilo ---
+    my $make_row = sub {
+        my ($parent, $label, $style_ref) = @_;
+        my $f = $parent->Frame(-bg => $bg_panel)->pack(-fill => 'x', -pady => 4);
+        $f->Label(-text => $label, -bg => $bg_panel, -fg => $fg_label, -anchor => 'w', -width => 22)
+          ->pack(-side => 'left');
+
+        my %style_btns;
+        my $update = sub {
+            for my $s (@styles) {
+                if ($$style_ref eq $s) {
+                    $style_btns{$s}->configure(-bg => $accent, -fg => '#FFFFFF');
+                } else {
+                    $style_btns{$s}->configure(-bg => $bg_field, -fg => $fg);
+                }
+            }
+        };
+
+        for my $s (@styles) {
+            $style_btns{$s} = $f->Button(
+                -text => $s,
+                -bg   => $bg_field, -fg => $fg, -relief => 'flat',
+                -activebackground => $accent, -activeforeground => '#FFFFFF',
+                -font => 'Helvetica 8',
+                -padx => 6, -pady => 2,
+                -command => sub { $$style_ref = $s; $update->(); },
+            )->pack(-side => 'left', -padx => 2);
+        }
+        $update->();
+        return $f;
+    };
+
+    # Copias locales para edición
+    my $v_style_d = $ovl->{style_daily};
+    my $v_style_w = $ovl->{style_weekly};
+    my $v_style_m = $ovl->{style_monthly};
+
+    # Separador de sección
+    my $make_sep = sub {
+        my ($txt) = @_;
+        $content->Label(-text => $txt, -bg => $bg_panel, -fg => $fg_label,
+                        -font => 'Helvetica 8', -anchor => 'w')
+                ->pack(-fill => 'x', -pady => [8, 2]);
+        $content->Frame(-bg => '#2D3245', -height => 1)->pack(-fill => 'x', -pady => [0, 4]);
+    };
+
+    $make_sep->('Daily H/L  (PDH / PDL)');
+    $make_row->($content, 'Estilo de línea', \$v_style_d);
+
+    $make_sep->('Weekly H/L  (PWH / PWL)');
+    $make_row->($content, 'Estilo de línea', \$v_style_w);
+
+    $make_sep->('Monthly H/L  (PMH / PML)');
+    $make_row->($content, 'Estilo de línea', \$v_style_m);
+
+    # Botones
+    my $btn_frame = $top->Frame(-bg => $bg)->pack(-fill => 'x', -padx => 16, -pady => 12);
+
+    $btn_frame->Button(
+        -text => 'Cancelar', -bg => $bg_field, -fg => $fg, -relief => 'flat',
+        -command => sub { $top->destroy() },
+    )->pack(-side => 'left', -padx => [0, 10]);
+
+    $btn_frame->Button(
+        -text => 'Aceptar', -bg => $accent, -fg => '#FFFFFF', -relief => 'flat',
+        -command => sub {
+            $ovl->{style_daily}   = $v_style_d;
+            $ovl->{style_weekly}  = $v_style_w;
+            $ovl->{style_monthly} = $v_style_m;
+            $self->request_render();
             $top->destroy();
         },
     )->pack(-side => 'right');

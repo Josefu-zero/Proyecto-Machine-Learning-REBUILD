@@ -200,4 +200,72 @@ sub get_candle {
     return $array_ref->[$index];
 }
 
+# =====================================================================
+# MTF LEVELS: PDH/PDL, PWH/PWL, PMH/PML
+# Devuelve un hashref con las claves:
+#   daily_high, daily_low, weekly_high, weekly_low, monthly_high, monthly_low
+# Cada nivel es el H/L de la vela ANTERIOR completamente cerrada en esa TF.
+# (equivalent de request.security(..., high[1], low[1], lookahead=on) en Pine)
+# =====================================================================
+sub get_mtf_levels {
+    my ($self) = @_;
+
+    my %levels;
+
+    # Obtener el timestamp de la última vela disponible (respeta replay)
+    my $last = $self->last_candle();
+    return \%levels unless defined $last;
+    my $last_ts = $last->{timestamp};
+
+    # Para cada TF: encontrar la última vela cuyo timestamp < last_ts → esa está cerrada.
+    # Devolvemos el HIGH y LOW de esa vela.
+    for my $tf (qw(D W)) {
+        next unless exists $self->{data}{$tf} && @{ $self->{data}{$tf} };
+        my $arr = $self->{data}{$tf};
+        my $prev;
+        for my $c (@$arr) {
+            last if ($c->{timestamp} // '') ge $last_ts;
+            $prev = $c;
+        }
+        if (defined $prev) {
+            my $key = ($tf eq 'D') ? 'daily' : 'weekly';
+            $levels{"${key}_high"} = $prev->{high};
+            $levels{"${key}_low"}  = $prev->{low};
+        }
+    }
+
+    # Para el mensual usamos D y agrupamos por año-mes
+    if (exists $self->{data}{D} && @{ $self->{data}{D} }) {
+        my $arr = $self->{data}{D};
+        my %months;
+        for my $c (@$arr) {
+            next if ($c->{timestamp} // '') ge $last_ts;
+            if ($c->{timestamp} =~ /^(\d{4}-\d{2})/) {
+                my $ym = $1;
+                if (!exists $months{$ym}) {
+                    $months{$ym} = { high => $c->{high}, low => $c->{low} };
+                } else {
+                    $months{$ym}{high} = $c->{high} if $c->{high} > $months{$ym}{high};
+                    $months{$ym}{low}  = $c->{low}  if $c->{low}  < $months{$ym}{low};
+                }
+            }
+        }
+        # El mes "anterior" al del último timestamp
+        my $cur_ym = '';
+        $cur_ym = $1 if $last_ts =~ /^(\d{4}-\d{2})/;
+        my @sorted_months = sort keys %months;
+        my $prev_ym;
+        for my $ym (@sorted_months) {
+            last if $ym ge $cur_ym;
+            $prev_ym = $ym;
+        }
+        if (defined $prev_ym) {
+            $levels{monthly_high} = $months{$prev_ym}{high};
+            $levels{monthly_low}  = $months{$prev_ym}{low};
+        }
+    }
+
+    return \%levels;
+}
+
 1;
