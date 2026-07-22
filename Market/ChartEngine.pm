@@ -287,8 +287,9 @@ sub render {
     if (($vis->{mtf_daily} // 0)
      || ($vis->{mtf_weekly} // 0)
      || ($vis->{mtf_monthly} // 0)) {
-        my $mtf_levels = $self->{market_data}->get_mtf_levels();
-        $self->{mtf_overlay}->render($scale, $mtf_levels, $vis);
+        my $mtf_levels    = $self->{market_data}->get_mtf_levels();
+        my $last_data_idx = $self->{market_data}->last_index() // 0;
+        $self->{mtf_overlay}->render($scale, $mtf_levels, $vis, $start, $last_data_idx);
     } else {
         $self->{price_canvas}->delete('mtf_levels');
     }

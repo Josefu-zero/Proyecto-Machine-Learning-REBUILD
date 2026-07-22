@@ -199,73 +199,182 @@ sub get_candle {
     
     return $array_ref->[$index];
 }
-
-# =====================================================================
 # MTF LEVELS: PDH/PDL, PWH/PWL, PMH/PML
-# Devuelve un hashref con las claves:
-#   daily_high, daily_low, weekly_high, weekly_low, monthly_high, monthly_low
-# Cada nivel es el H/L de la vela ANTERIOR completamente cerrada en esa TF.
-# (equivalent de request.security(..., high[1], low[1], lookahead=on) en Pine)
+#
+# Calcula directamente desde los datos 1m, agrupando por:
+#   - Día calendario       → Daily H/L
+#   - Semana ISO (lunes)   → Weekly H/L
+#   - Año-Mes              → Monthly H/L
+#
+# Devuelve el H/L de la vela ANTERIOR completamente cerrada en cada TF.
+# (Equivalente a request.security(..., high[1], low[1], lookahead=on) en Pine)
 # =====================================================================
 sub get_mtf_levels {
     my ($self) = @_;
 
     my %levels;
 
+    # Solo usamos los datos 1m (fuente de verdad)
+    return \%levels unless exists $self->{data}{'1m'} && @{ $self->{data}{'1m'} };
+
     # Obtener el timestamp de la última vela disponible (respeta replay)
     my $last = $self->last_candle();
     return \%levels unless defined $last;
     my $last_ts = $last->{timestamp};
 
-    # Para cada TF: encontrar la última vela cuyo timestamp < last_ts → esa está cerrada.
-    # Devolvemos el HIGH y LOW de esa vela.
-    for my $tf (qw(D W)) {
-        next unless exists $self->{data}{$tf} && @{ $self->{data}{$tf} };
-        my $arr = $self->{data}{$tf};
-        my $prev;
-        for my $c (@$arr) {
-            last if ($c->{timestamp} // '') ge $last_ts;
-            $prev = $c;
+    # Extraer fecha actual y sus componentes
+    my ($cur_date, $cur_ym) = ('', '');
+    if ($last_ts =~ /^(\d{4}-(\d{2})-(\d{2}))/) {
+        $cur_date = $1;
+        $cur_ym   = "$1";
+        $cur_ym   =~ s/-\d{2}$//;    # "2026-07"
+    }
+
+    # ── Acumuladores por periodo ─────────────────────────────────────────────
+    my %by_day;    # "YYYY-MM-DD"     => { high, low }
+    my %by_week;   # "YYYY-WW"        => { high, low }  (ISO week, Monday-anchored)
+    my %by_month;  # "YYYY-MM"        => { high, low }
+
+    # Limite de datos: solo candles ANTES del día actual
+    my $limit_ts = "${cur_date}T00:00:00";
+    my $arr = $self->{data}{'1m'};
+
+    # En modo replay, solo considerar hasta replay_index
+    my $max_i = $self->{replay_mode} ? $self->{replay_index} : $#{$arr};
+
+    for my $i (0 .. $max_i) {
+        my $c  = $arr->[$i];
+        my $ts = $c->{timestamp} // '';
+
+        # Solo candles completamente anteriores al día actual
+        next unless $ts lt $limit_ts;
+
+        my ($date, $year, $mon, $day, $h, $m) = ('','','','','','');
+        next unless $ts =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+        ($year, $mon, $day, $h, $m) = ($1, $2, $3, $4, $5);
+        $date = "$year-$mon-$day";
+
+        # Clave de mes
+        my $ym = "$year-$mon";
+
+        # Clave de semana ISO (lunes = inicio de semana)
+        # Usamos el algoritmo Zeller simplificado para obtener el día de semana
+        # y retroceder al lunes
+        my $dow = _day_of_week($year, $mon, $day);  # 0=Mon..6=Sun
+        my $days_since_mon = $dow;
+        my ($wy, $wm, $wd) = _date_add($year, $mon, $day, -$days_since_mon);
+        my $week_key = sprintf("%04d-%02d-%02d", $wy, $wm, $wd);
+
+        # Actualizar acumuladores
+        for my $bucket_key ($date) {
+            if (!exists $by_day{$date}) {
+                $by_day{$date} = { high => $c->{high}, low => $c->{low} };
+            } else {
+                $by_day{$date}{high} = $c->{high} if $c->{high} > $by_day{$date}{high};
+                $by_day{$date}{low}  = $c->{low}  if $c->{low}  < $by_day{$date}{low};
+            }
         }
-        if (defined $prev) {
-            my $key = ($tf eq 'D') ? 'daily' : 'weekly';
-            $levels{"${key}_high"} = $prev->{high};
-            $levels{"${key}_low"}  = $prev->{low};
+
+        if (!exists $by_week{$week_key}) {
+            $by_week{$week_key} = { high => $c->{high}, low => $c->{low} };
+        } else {
+            $by_week{$week_key}{high} = $c->{high} if $c->{high} > $by_week{$week_key}{high};
+            $by_week{$week_key}{low}  = $c->{low}  if $c->{low}  < $by_week{$week_key}{low};
+        }
+
+        if (!exists $by_month{$ym}) {
+            $by_month{$ym} = { high => $c->{high}, low => $c->{low} };
+        } else {
+            $by_month{$ym}{high} = $c->{high} if $c->{high} > $by_month{$ym}{high};
+            $by_month{$ym}{low}  = $c->{low}  if $c->{low}  < $by_month{$ym}{low};
         }
     }
 
-    # Para el mensual usamos D y agrupamos por año-mes
-    if (exists $self->{data}{D} && @{ $self->{data}{D} }) {
-        my $arr = $self->{data}{D};
-        my %months;
-        for my $c (@$arr) {
-            next if ($c->{timestamp} // '') ge $last_ts;
-            if ($c->{timestamp} =~ /^(\d{4}-\d{2})/) {
-                my $ym = $1;
-                if (!exists $months{$ym}) {
-                    $months{$ym} = { high => $c->{high}, low => $c->{low} };
-                } else {
-                    $months{$ym}{high} = $c->{high} if $c->{high} > $months{$ym}{high};
-                    $months{$ym}{low}  = $c->{low}  if $c->{low}  < $months{$ym}{low};
-                }
-            }
+    # ── Tomar el periodo ANTERIOR al actual en cada TF ───────────────────────
+
+    # Daily: último día antes de hoy
+    if (%by_day) {
+        my @days = sort keys %by_day;
+        my $prev_day = $days[-1];   # último día con datos anteriores al de hoy
+        if (defined $prev_day) {
+            $levels{daily_high} = $by_day{$prev_day}{high};
+            $levels{daily_low}  = $by_day{$prev_day}{low};
         }
-        # El mes "anterior" al del último timestamp
-        my $cur_ym = '';
-        $cur_ym = $1 if $last_ts =~ /^(\d{4}-\d{2})/;
-        my @sorted_months = sort keys %months;
-        my $prev_ym;
-        for my $ym (@sorted_months) {
-            last if $ym ge $cur_ym;
-            $prev_ym = $ym;
+    }
+
+    # Weekly: última semana (por clave YYYY-MM-DD del lunes) anterior a esta semana
+    if (%by_week) {
+        # La semana actual: lunes de la semana del último timestamp
+        my ($ly, $lm, $ld) = ('', '', '');
+        if ($last_ts =~ /^(\d{4})-(\d{2})-(\d{2})/) {
+            ($ly, $lm, $ld) = ($1, $2, $3);
         }
-        if (defined $prev_ym) {
-            $levels{monthly_high} = $months{$prev_ym}{high};
-            $levels{monthly_low}  = $months{$prev_ym}{low};
+        my $dow_now = _day_of_week($ly, $lm, $ld);
+        my ($cwy, $cwm, $cwd) = _date_add($ly, $lm, $ld, -$dow_now);
+        my $cur_week_key = sprintf("%04d-%02d-%02d", $cwy, $cwm, $cwd);
+
+        my @weeks = sort keys %by_week;
+        my $prev_week;
+        for my $wk (@weeks) {
+            last if $wk ge $cur_week_key;
+            $prev_week = $wk;
+        }
+        if (defined $prev_week) {
+            $levels{weekly_high} = $by_week{$prev_week}{high};
+            $levels{weekly_low}  = $by_week{$prev_week}{low};
+        }
+    }
+
+    # Monthly: último mes anterior al mes actual
+    if (%by_month) {
+        my @months = sort keys %by_month;
+        my $prev_month;
+        for my $mo (@months) {
+            last if $mo ge $cur_ym;
+            $prev_month = $mo;
+        }
+        if (defined $prev_month) {
+            $levels{monthly_high} = $by_month{$prev_month}{high};
+            $levels{monthly_low}  = $by_month{$prev_month}{low};
         }
     }
 
     return \%levels;
+}
+
+# ── Helpers de calendario ────────────────────────────────────────────────────
+
+# _day_of_week($y, $m, $d) → 0=Lunes, 1=Martes, ... 6=Domingo
+# Algoritmo de Tomohiko Sakamoto (portable, sin módulos externos)
+sub _day_of_week {
+    my ($y, $m, $d) = @_;
+    my @t = (0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4);
+    $y-- if $m < 3;
+    my $dow = ($y + int($y/4) - int($y/100) + int($y/400) + $t[$m-1] + $d) % 7;
+    # 0=Sun → convertir a 0=Mon
+    return ($dow + 6) % 7;
+}
+
+# _date_add($y, $m, $d, $delta_days) → ($ny, $nm, $nd)
+# Suma delta_days a una fecha. Solo funciona para deltas pequeños (<30).
+sub _date_add {
+    my ($y, $m, $d, $delta) = @_;
+    $d += $delta;
+    my @days_in = (0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31);
+    $days_in[2] = 29 if ($y % 4 == 0 && ($y % 100 != 0 || $y % 400 == 0));
+    while ($d < 1) {
+        $m--;
+        if ($m < 1) { $m = 12; $y--; }
+        $days_in[2] = 29 if ($y % 4 == 0 && ($y % 100 != 0 || $y % 400 == 0));
+        $d += $days_in[$m];
+    }
+    while ($d > $days_in[$m]) {
+        $d -= $days_in[$m];
+        $m++;
+        if ($m > 12) { $m = 1; $y++; }
+        $days_in[2] = 29 if ($y % 4 == 0 && ($y % 100 != 0 || $y % 400 == 0));
+    }
+    return ($y, $m, $d);
 }
 
 1;
