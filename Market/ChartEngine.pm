@@ -1552,7 +1552,7 @@ sub _open_zz_fibo_config {
         return;
     }
 
-    # Colores del tema
+    # Colores del tema (Estilo anterior/oscuro)
     my $bg        = '#131722';
     my $bg_panel  = '#1A1E2E';
     my $bg_field  = '#2A2E39';
@@ -1561,8 +1561,8 @@ sub _open_zz_fibo_config {
     my $accent    = '#2962FF';
     
     my $top = $self->{mw}->Toplevel(-bg => $bg);
-    $top->title("Configuración de ZigZag Fibo");
-    $top->geometry("400x200");
+    $top->title("ZZMTF");
+    $top->geometry("420x200");
     $top->transient($self->{mw});
     $top->grab();
 
@@ -1591,16 +1591,16 @@ sub _open_zz_fibo_config {
     };
 
     my $v_prd = $zz_fibo_ind->{prd};
-    my $v_tf  = $zz_fibo_ind->{tf} // 'D';
+    my $v_tf  = $zz_fibo_ind->{tf} // '1h';
 
     $make_row->($content,
         'ZigZag Period',
         sub { $make_spin->($_[0], \$v_prd, 1, 30, 1) },
     );
 
-    # Fila de botones para Timeframe
+    # Fila de botones para Timeframe (Ahora "ZigZag Resolution")
     my $tf_frame = $content->Frame(-bg => $bg_panel)->pack(-fill => 'x', -pady => 15);
-    $tf_frame->Label(-text => 'Timeframe', -bg => $bg_panel, -fg => $fg_label, -anchor => 'w', -width => 15)
+    $tf_frame->Label(-text => 'ZigZag Resolution', -bg => $bg_panel, -fg => $fg_label, -anchor => 'w', -width => 15)
       ->pack(-side => 'left');
     
     my $tf_btn_frame = $tf_frame->Frame(-bg => $bg_panel)->pack(-side => 'right', -fill => 'x', -expand => 1);
@@ -1632,7 +1632,7 @@ sub _open_zz_fibo_config {
     
     $update_tf_btns->();
 
-    # Botones
+    # Botones Aceptar / Cancelar
     my $btn_frame = $top->Frame(-bg => $bg)->pack(-fill => 'x', -padx => 15, -pady => 15);
     
     $btn_frame->Button(

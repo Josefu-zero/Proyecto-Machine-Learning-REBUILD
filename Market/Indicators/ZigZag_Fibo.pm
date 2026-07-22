@@ -8,8 +8,8 @@ use List::Util qw(max min);
 sub new {
     my ($class, %args) = @_;
     my $self = {
-        tf  => $args{tf}  // 'D', # Resolución (1m, 5m, 15m, 1h, 2h, 4h, D, W)
-        prd => $args{prd} // 2,   # Periodo (por defecto 2)
+        tf  => $args{tf}  // '1h', # Resolución (1m, 5m, 15m, 1h, 2h, 4h, D, W)
+        prd => $args{prd} // 2,    # Periodo (por defecto 2)
     };
     bless $self, $class;
     $self->reset();

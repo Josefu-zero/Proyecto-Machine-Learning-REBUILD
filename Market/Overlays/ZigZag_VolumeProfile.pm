@@ -56,8 +56,8 @@ sub new {
         canvas => $args{canvas},
 
         # Colores exactos del Pine (binColorLow=lime, binColorHigh=blue, poc=red)
-        color_bullish   => $args{color_bullish}   // '#26a69a',   # ZigZag alcista
-        color_bearish   => $args{color_bearish}   // '#ef5350',   # ZigZag bajista
+        color_bullish   => $args{color_bullish}   // '#2962FF',   # ZigZag alcista (azul)
+        color_bearish   => $args{color_bearish}   // '#2962FF',   # ZigZag bajista (azul)
         color_poc       => $args{color_poc}       // '#ef5350',   # pocLineColor=red
         color_channel   => $args{color_channel}   // '#555a6e',   # chart.fg_color 70% alpha
         color_bin_low   => $args{color_bin_low}   // '#00ff00',   # binColorLow=lime

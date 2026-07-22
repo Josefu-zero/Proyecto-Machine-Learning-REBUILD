@@ -10,6 +10,7 @@ use lib $FindBin::Bin;
 use utf8;
 
 use Tk;
+use Tk::Pane;
 use Market::MarketData;
 use Market::IndicatorManager;
 use Market::Indicators::ATR;
@@ -117,9 +118,8 @@ $toolbar->Button(
 my $main_frame = $mw->Frame(-bg => '#131722')
     ->pack(-side => 'top', -fill => 'both', -expand => 1);
 
-my $sidebar = $main_frame->Frame(-bg => '#1A1E2E', -width => 168)
+my $sidebar = $main_frame->Scrolled('Pane', -scrollbars => 'osoe', -sticky => 'nsew', -bg => '#1A1E2E', -width => 168)
     ->pack(-side => 'left', -fill => 'y');
-$sidebar->packPropagate(0);   # mantener el ancho fijo aunque los hijos sean pequeños
 
 my $charts_frame = $main_frame->Frame(-bg => '#131722')
     ->pack(-side => 'right', -fill => 'both', -expand => 1);
@@ -166,7 +166,7 @@ $indicators->register('ZigZag_VolumeProfile',
 
 # Registrar el ZigZag Multi Time Frame con Fibonacci Retracement
 use Market::Indicators::ZigZag_Fibo;
-$indicators->register('ZigZag_Fibo', Market::Indicators::ZigZag_Fibo->new(prd => 2));
+$indicators->register('ZigZag_Fibo', Market::Indicators::ZigZag_Fibo->new(prd => 2, tf => '1h'));
 
 # ==============================================================================
 # Fase 2: Infraestructura Analítica de Volumen y VWAP
