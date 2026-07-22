@@ -177,8 +177,8 @@ $indicators->register('ZigZag_Fibo', Market::Indicators::ZigZag_Fibo->new(prd =>
 use Market::Indicators::Volume_Profile;
 $indicators->register('Volume_Profile',
     Market::Indicators::Volume_Profile->new(
-        mode           => 'session',  # Reinicio en cada nueva sesión
-        price_levels   => 100,        # Resolución de cuadrícula de precio
+        mode           => 'historical', # Anchored (desde el inicio del rango)
+        price_levels   => 1000,       # Resolución de cuadrícula de precio (Row Size: 1000)
         value_area_pct => 0.70,       # 70% del volumen para el Value Area
         context_bars   => 500,        # Ventana de contexto indexado (Sección 2)
     )

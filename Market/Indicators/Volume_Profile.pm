@@ -99,8 +99,8 @@ sub calculate_for_window {
     $self->{_last_window_start} = $win_start;
     $self->{_last_window_end}   = $win_end;
 
-    # Expandir la ventana de análisis con el contexto de validación
-    my $ctx_start = max(0, $win_start - $self->{context_bars});
+    # Expandir la ventana de análisis con el contexto de validación o el ancla manual
+    my $ctx_start = defined $self->{anchor_idx} ? $self->{anchor_idx} : max(0, $win_start - $self->{context_bars});
     my $ctx_end   = $win_end;
 
     $self->_build_profiles($market_data, $ctx_start, $ctx_end, $smc_data_ref);
@@ -263,6 +263,8 @@ sub _compute_and_push_profile {
     my $levels    = $self->{price_levels};
     my $tick_size = ($range_max - $range_min) / $levels;
     my @histogram = (0) x $levels;  # volumen acumulado por nivel de precio
+    my @hist_up   = (0) x $levels;  # volumen up
+    my @hist_down = (0) x $levels;  # volumen down
     my $total_vol = 0;
     return if $levels <= 0;
 
@@ -272,6 +274,7 @@ sub _compute_and_push_profile {
 
         # Distribuir el volumen de la vela proporcionalmente entre su high y low
         my $c_range = $c->{high} - $c->{low};
+        my $is_up   = ($c->{close} >= $c->{open}) ? 1 : 0;
         for my $lvl (0 .. $levels - 1) {
             my $lvl_low  = $range_min + $lvl       * $tick_size;
             my $lvl_high = $range_min + ($lvl + 1) * $tick_size;
@@ -286,6 +289,11 @@ sub _compute_and_push_profile {
                     : 1.0 / $levels;
                 my $vol_contrib = $c->{volume} * $frac;
                 $histogram[$lvl] += $vol_contrib;
+                if ($is_up) {
+                    $hist_up[$lvl] += $vol_contrib;
+                } else {
+                    $hist_down[$lvl] += $vol_contrib;
+                }
                 $total_vol       += $vol_contrib;
             }
         }
@@ -339,6 +347,8 @@ sub _compute_and_push_profile {
         range_max => $range_max,
         tick_size => $tick_size,
         histogram => \@histogram,
+        hist_up   => \@hist_up,
+        hist_down => \@hist_down,
         total_vol => $total_vol,
     };
 }

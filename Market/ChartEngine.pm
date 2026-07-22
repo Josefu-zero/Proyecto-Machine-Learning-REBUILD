@@ -58,18 +58,18 @@ sub new {
         visibility => {
             zigzag           => 0,  # ZigZag (LonesomeTheBlue)
             # --- SMC Pro [Neon] — Estructura Macro (Swing) ---
-            bos_choch        => 1,  # BOS / CHoCH swing (lineas solidas)
-            structure_labels => 1,  # Etiquetas HH / HL / LH / LL macro
-            strong_weak_hl   => 1,  # Strong / Weak High & Low (trailing)
+            bos_choch        => 0,  # BOS / CHoCH swing (lineas solidas)
+            structure_labels => 0,  # Etiquetas HH / HL / LH / LL macro
+            strong_weak_hl   => 0,  # Strong / Weak High & Low (trailing)
             # --- SMC Pro [Neon] — Estructura Interna ---
             int_bos_choch        => 0,  # BOS / CHoCH internos (dashed)
             int_structure_labels => 0,  # Etiquetas HH/HL/LH/LL internos
             # --- SMC Pro [Neon] — Order Blocks ---
-            order_blocks     => 1,  # Order Blocks de swing
+            order_blocks     => 0,  # Order Blocks de swing
             int_order_blocks => 0,  # Order Blocks internos
             # --- SMC Pro [Neon] — Zonas ---
-            fvg              => 1,  # Fair Value Gaps
-            eq_highs_lows    => 1,  # Equal Highs / Equal Lows
+            fvg              => 0,  # Fair Value Gaps
+            eq_highs_lows    => 0,  # Equal Highs / Equal Lows
             premium_discount => 0,  # Zonas Premium / Equilibrium / Discount
             # --- Liquidez ---
             bsl              => 0,  # Buy-Side Liquidity
@@ -93,9 +93,9 @@ sub new {
             zvp_histogram    => 0,  # Histograma de volumen por tramo
             zvp_poc          => 0,  # Linea POC por tramo
             # --- MTF Levels (PDH/PDL, PWH/PWL, PMH/PML) ---
-            mtf_daily        => 1,  # Previous Day H/L
-            mtf_weekly       => 1,  # Previous Week H/L
-            mtf_monthly      => 1,  # Previous Month H/L
+            mtf_daily        => 0,  # Previous Day H/L
+            mtf_weekly       => 0,  # Previous Week H/L
+            mtf_monthly      => 0,  # Previous Month H/L
         },
         _sidebar_buttons => {},     # refs a widgets de botón para actualizar su estado
     };
@@ -317,6 +317,12 @@ sub render {
 
     $self->{atr_panel}->set_scale($atr_scale);
     $self->{atr_panel}->render($atr_slice);
+}
+
+sub enable_avp_selection {
+    my ($self) = @_;
+    $self->{awaiting_avp_selection} = 1;
+    $self->{price_canvas}->configure(-cursor => 'crosshair');
 }
 
 sub bind_events {
@@ -567,6 +573,28 @@ sub _on_drag_start {
         # Iniciar el replay exactamente en esa vela
         $self->start_replay($clicked_idx);
         return; # Abortar el resto de la función para que no inicie un arrastre
+    }
+
+    # =========================================================
+    # NUEVO: INTERCEPTOR DE SELECCIÓN DE VELA (MODO AVP)
+    # =========================================================
+    if ($self->{awaiting_avp_selection}) {
+        my $candle_width = $width / $self->{visible_bars};
+        my $clicked_idx = int($self->{offset}) + int($x / $candle_width);
+        my $max_idx = $self->{market_data}->size() - 1;
+        $clicked_idx = 0 if $clicked_idx < 0;
+        $clicked_idx = $max_idx if $clicked_idx > $max_idx;
+        
+        $self->{awaiting_avp_selection} = 0;
+        $self->{price_canvas}->configure(-cursor => 'left_ptr');
+        
+        my $vp_ind = $self->{indicators}{indicators}{'Volume_Profile'};
+        if ($vp_ind) {
+            $vp_ind->{anchor_idx} = $clicked_idx;
+            $vp_ind->{_last_window_start} = -1; # Forzar recálculo
+        }
+        $self->request_render();
+        return; 
     }
 
     # =========================================================
@@ -1175,6 +1203,7 @@ sub _build_sidebar {
 
     # ── Sección: Volume Profile (Fase 2) ─────────────────────
     $sep->('Perfil de Volumen');
+    $make_action->('📌 Anclar AVP',  sub { $self->enable_avp_selection() });
     $make_toggle->('volume_profile',   'VP  Vol Profile ON/OFF');
     $make_toggle->('vp_histogram',     '::  Histograma VP');
     $make_toggle->('vp_poc',           'PC  Línea POC');

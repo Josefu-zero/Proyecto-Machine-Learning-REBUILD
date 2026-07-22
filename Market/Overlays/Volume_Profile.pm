@@ -26,21 +26,23 @@ sub new {
         canvas => $args{canvas},
 
         # --- Colores configurables ---
-        color_poc        => $args{color_poc}        // '#F7C948',  # Amarillo POC
-        color_vah        => $args{color_vah}        // '#26A69A',  # Verde VAH
-        color_val        => $args{color_val}        // '#EF5350',  # Rojo VAL
-        color_hist_va    => $args{color_hist_va}    // '#1E3A5F',  # Azul oscuro — dentro del VA
-        color_hist_out   => $args{color_hist_out}   // '#2A2E39',  # Gris — fuera del VA
-        color_poc_node   => $args{color_poc_node}   // '#F7C948',  # Nodo POC (relleno)
+        color_poc        => $args{color_poc}        // '#000000',  # Black POC
+        color_vah        => $args{color_vah}        // '#000000',  # Black VAH
+        color_val        => $args{color_val}        // '#000000',  # Black VAL
+        color_hist_up    => $args{color_hist_up}    // '#26A69A',  # Up Volume
+        color_hist_down  => $args{color_hist_down}  // '#EF5350',  # Down Volume
+        color_hist_va_up => $args{color_hist_va_up} // '#4FC3F7',  # Value Area Up
+        color_hist_va_dn => $args{color_hist_va_dn} // '#4FC3F7',  # Value Area Down
+        color_poc_node   => $args{color_poc_node}   // '#000000',  # POC Node
 
         # --- Parámetros de renderizado ---
-        hist_width_pct   => $args{hist_width_pct}   // 0.15, # % del ancho del canvas para el histograma
-        line_width_poc   => $args{line_width_poc}   // 2,
+        hist_width_pct   => $args{hist_width_pct}   // 0.30, # 30% del ancho del canvas
+        line_width_poc   => $args{line_width_poc}   // 1,
         line_width_va    => $args{line_width_va}    // 1,
         show_histogram   => $args{show_histogram}   // 1,
         show_poc_line    => $args{show_poc_line}    // 1,
         show_va_lines    => $args{show_va_lines}    // 1,
-        show_labels      => $args{show_labels}      // 1,
+        show_labels      => $args{show_labels}      // 0,
     };
     bless $self, $class;
     return $self;
@@ -126,28 +128,46 @@ sub render {
                 next if $y_top >= $y_bottom;
 
                 # Anchura de barra proporcional al volumen relativo
-                my $bar_w = ($histogram->[$lvl] / $max_vol) * $hist_max_w;
+                my $w_up   = ($prof->{hist_up}[$lvl]   // 0) / $max_vol * $hist_max_w;
+                my $w_down = ($prof->{hist_down}[$lvl] // 0) / $max_vol * $hist_max_w;
 
-                # El histograma se dibuja pegado al lado derecho de la ventana X
                 my $bar_x2 = $x_end;
-                my $bar_x1 = $x_end - $bar_w;
+                my $mid_x  = $bar_x2 - $w_up;
+                my $bar_x1 = $mid_x - $w_down;
+                
                 $bar_x1 = 0 if $bar_x1 < 0;
+                $mid_x  = 0 if $mid_x < 0;
 
-                # Color: dentro del Value Area (entre VAL y VAH) = azul, fuera = gris
                 my $in_va  = ($lvl >= $prof->{va_low} && $lvl <= $prof->{va_high});
-                my $color  = $in_va
-                    ? $self->{color_hist_va}
-                    : $self->{color_hist_out};
+                my $c_up   = $in_va ? $self->{color_hist_va_up} : $self->{color_hist_up};
+                my $c_down = $in_va ? $self->{color_hist_va_dn} : $self->{color_hist_down};
 
-                # POC: resaltarlo con el color especial
-                $color = $self->{color_poc_node} if $lvl == $prof->{poc_lvl};
+                if ($lvl == $prof->{poc_lvl}) {
+                    $c_up = $self->{color_poc_node};
+                    $c_down = $self->{color_poc_node};
+                }
 
-                $c->createRectangle(
-                    $bar_x1, $y_top, $bar_x2, $y_bottom,
-                    -fill    => $color,
-                    -outline => '',
-                    -tags    => ['vp_overlay'],
-                );
+                my $stipple = $in_va ? '' : 'gray50';
+
+                if ($w_up > 0) {
+                    $c->createRectangle(
+                        $mid_x, $y_top, $bar_x2, $y_bottom,
+                        -fill    => $c_up,
+                        -outline => '',
+                        -stipple => $stipple,
+                        -tags    => ['vp_overlay'],
+                    );
+                }
+                
+                if ($w_down > 0) {
+                    $c->createRectangle(
+                        $bar_x1, $y_top, $mid_x, $y_bottom,
+                        -fill    => $c_down,
+                        -outline => '',
+                        -stipple => $stipple,
+                        -tags    => ['vp_overlay'],
+                    );
+                }
             }
         }
 
@@ -162,7 +182,7 @@ sub render {
                     $x_start, $y_poc, $x_end, $y_poc,
                     -fill  => $self->{color_poc},
                     -width => $self->{line_width_poc},
-                    -dash  => undef,
+                    -dash  => '-',
                     -tags  => ['vp_overlay'],
                 );
 
