@@ -17,12 +17,12 @@ sub new {
 }
 
 sub render {
-    my ($self, $scale, $liquidity_slice, $visibility) = @_;
+    my ($self, $scale, $liquidity_full, $start_idx, $end_idx, $visibility) = @_;
     my $c = $self->{canvas};
 
     $c->delete('liquidity_overlay');
 
-    return unless $liquidity_slice && @$liquidity_slice;
+    return unless $liquidity_full && @$liquidity_full;
 
     $visibility //= {};
     my $show = sub { $visibility->{$_[0]} // 1 };
@@ -32,15 +32,12 @@ sub render {
     my $min_val      = $scale->{min_val};
     my $max_val      = $scale->{max_val};
     my $visible_bars = $scale->{visible_bars};
-    my $offset_frac  = $scale->{offset};
-
+    
     my $range = $max_val - $min_val;
     return if $range <= 0;
 
-    my $candle_width = $scale->_drawable_width() / $visible_bars;
-
-    for my $i (0 .. $#$liquidity_slice) {
-        my $punto = $liquidity_slice->[$i];
+    for my $i (0 .. $#$liquidity_full) {
+        my $punto = $liquidity_full->[$i];
         next if !$punto;
 
         # =========================================================================
@@ -57,11 +54,15 @@ sub render {
 
             if ($should_show) {
                 my $level_price = $punto->{price};
-                my $end_idx     = $punto->{end_index} // $i;
+                my $item_end_idx = $punto->{end_index} // $i;
                 my $res         = $punto->{resolution} // '';
 
-                my $x_start = $scale->index_to_center_x($i);
-                my $x_end   = $scale->index_to_center_x($end_idx);
+                # Filtrar si la línea completa está fuera del viewport
+                next if $item_end_idx < $start_idx || $i > $end_idx;
+
+                # Convertir índices absolutos a coordenadas relativas al viewport
+                my $x_start = $scale->index_to_center_x($i - $start_idx);
+                my $x_end   = $scale->index_to_center_x($item_end_idx - $start_idx);
                 my $y       = $scale->value_to_y($level_price);
 
                 next if $y < -100 || $y > $height + 100;

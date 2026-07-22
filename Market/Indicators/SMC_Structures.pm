@@ -44,6 +44,7 @@ use constant {
     SW_LEN          => 50,    # swLenInp  - tamaño del swing macro
     INT_LEN         => 5,     # interno (hardcoded en Pine)
     ATR_LEN         => 200,   # atrLenInp
+    EQ_LEN          => 3,     # eqLenInp (Confirmation Bars)
     EQ_THRESH       => 0.1,   # eqThreshInp (mult de ATR)
     INT_OB_COUNT    => 5,     # intOBCntInp
     SW_OB_COUNT     => 5,     # swOBCntInp
@@ -56,6 +57,7 @@ sub new {
         sw_len       => $args{sw_len}       // SW_LEN,
         int_len      => $args{int_len}      // INT_LEN,
         atr_len      => $args{atr_len}      // ATR_LEN,
+        eq_len       => $args{eq_len}       // EQ_LEN,
         eq_thresh    => $args{eq_thresh}    // EQ_THRESH,
         int_ob_count => $args{int_ob_count} // INT_OB_COUNT,
         sw_ob_count  => $args{sw_ob_count}  // SW_OB_COUNT,
@@ -486,8 +488,10 @@ sub calculate {
     # FVGs
     my ($all_fvgs, undef) = $self->_compute_fvgs(\@candles, $atr);
 
-    # Equal H/L
-    my ($eq_highs, $eq_lows) = $self->_compute_equal_hl(\@candles, $sw_pivots, $atr);
+    # Equal H/L (usando su propio tamaño eq_len)
+    my $eq_legs   = $self->_compute_legs(\@candles, $self->{eq_len});
+    my $eq_pivots = $self->_extract_pivots(\@candles, $eq_legs, $self->{eq_len}, 0);
+    my ($eq_highs, $eq_lows) = $self->_compute_equal_hl(\@candles, $eq_pivots, $atr);
 
     # ---- Indexar por barra ----
     my %ev_by_bar;

@@ -198,19 +198,32 @@ sub render {
     # =========================================================
     # Overlay de Liquidez (BSL / SSL / EQH / EQL / Sweeps)
     # =========================================================
-    my $liq_slice = $self->{indicators}->slice_array('Liquidity', $start, $end);
-    $self->{liquidity_overlay}->render($scale, $liq_slice, $vis);
+    my $liq_full = $self->{indicators}->get('Liquidity');
+    $self->{liquidity_overlay}->render($scale, $liq_full, $start, $end, $vis) if $liq_full;
 
     # ========================================================
     # Overlay de Estructuras SMC (BOS / CHOCH / FVG / labels)
-    # El flag show_smc actúa como master-switch; los flags
-    # individuales dentro de visibility dan control granular.
+    # Siempre se llama al render; cada elemento usa su propio
+    # flag de visibilidad. El botón toolbar "SMC" actúa como
+    # master-switch sólo para bos_choch/labels/fvg.
     # ========================================================
-    if ($self->{show_smc}) {
-        my $smc_slice = $self->{indicators}->slice_array('SMC_Structures', $start, $end);
-        $self->{smc_overlay}->render($scale, $smc_slice, $start, $vis);
+    my $smc_slice = $self->{indicators}->slice_array('SMC_Structures', $start, $end);
+    unless ($self->{show_smc}) {
+        # Master-switch apagado: forzar a 0 los flags SMC principales
+        # pero dejar pasar eq_highs_lows si está activo en sidebar
+        my %vis_override = %$vis;
+        $vis_override{bos_choch}        = 0;
+        $vis_override{structure_labels} = 0;
+        $vis_override{strong_weak_hl}   = 0;
+        $vis_override{int_bos_choch}    = 0;
+        $vis_override{int_structure_labels} = 0;
+        $vis_override{order_blocks}     = 0;
+        $vis_override{int_order_blocks} = 0;
+        $vis_override{fvg}              = 0;
+        $vis_override{premium_discount} = 0;
+        $self->{smc_overlay}->render($scale, $smc_slice, $start, \%vis_override);
     } else {
-        $self->{price_canvas}->delete('smc_overlay');
+        $self->{smc_overlay}->render($scale, $smc_slice, $start, $vis);
     }
 
     # =========================================================
@@ -621,6 +634,8 @@ sub _on_drag_start {
 
 sub _on_drag_motion {
     my ($self, $x, $y) = @_;
+    
+    return unless defined $self->{drag_mode};
     
     if ($self->{drag_mode} eq 'vertical') {
         # =============================================
